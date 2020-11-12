@@ -32,9 +32,10 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <main.dir>${basedir}</main.dir>
-        <thingsboard.version>3.1.0</thingsboard.version>
+        <thingsboard.version>3.0.1PE-SNAPSHOT</thingsboard.version>
         <lombok.version>1.16.18</lombok.version>
         <guava.version>21.0</guava.version>
+        <gson.version>2.6.2</gson.version>
     </properties>
 
     <dependencies>
@@ -79,6 +80,11 @@
             <artifactId>guava</artifactId>
             <scope>provided</scope>
             <version>${guava.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>${gson.version}</version>
         </dependency>
     </dependencies>
 
