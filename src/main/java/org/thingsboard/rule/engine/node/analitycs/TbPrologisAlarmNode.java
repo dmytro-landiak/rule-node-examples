@@ -100,7 +100,7 @@ public class TbPrologisAlarmNode implements TbNode {
             } else {
                 log.info("No devices found related to building {}", building.getName());
             }
-            return null;
+            return Futures.immediateFuture(null);
         }, ctx.getDbCallbackExecutor());
         ListenableFuture<List<TbMsg>> resFuture = Futures.transformAsync(filteredDeviceFuture, devices -> {
             if (devices != null && !devices.isEmpty()) {
@@ -135,7 +135,7 @@ public class TbPrologisAlarmNode implements TbNode {
             } else {
                 log.info("No devices found with label=" + config.getDeviceLabel() + " and model=" + config.getModel());
             }
-            return null;
+            return Futures.immediateFuture(null);
         }, ctx.getDbCallbackExecutor());
         DonAsynchron.withCallback(resFuture, tbMsgs -> {
             ctx.ack(msg);
