@@ -17,11 +17,13 @@ package org.thingsboard.rule.engine.node.analitycs;
 
 import lombok.Data;
 import org.thingsboard.rule.engine.api.NodeConfiguration;
+import org.thingsboard.server.common.data.EntityType;
 
 @Data
 public class TbPrologisAlarmNodeConfiguration implements NodeConfiguration<TbPrologisAlarmNodeConfiguration> {
 
-    private String buildingName;
+    private String originatorId;
+    private EntityType originatorType;
     private String deviceLabel;
     private String model;
     private String keyName;

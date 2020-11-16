@@ -21,13 +21,19 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 import org.thingsboard.common.util.DonAsynchron;
-import org.thingsboard.rule.engine.api.*;
+import org.thingsboard.rule.engine.api.RuleNode;
+import org.thingsboard.rule.engine.api.TbContext;
+import org.thingsboard.rule.engine.api.TbNode;
+import org.thingsboard.rule.engine.api.TbNodeConfiguration;
+import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.DataConstants;
 import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.asset.Asset;
 import org.thingsboard.server.common.data.device.DeviceSearchQuery;
+import org.thingsboard.server.common.data.id.AssetId;
 import org.thingsboard.server.common.data.id.EntityId;
+import org.thingsboard.server.common.data.id.EntityIdFactory;
 import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 import org.thingsboard.server.common.data.kv.BaseReadTsKvQuery;
 import org.thingsboard.server.common.data.kv.KvEntry;
@@ -56,22 +62,24 @@ import java.util.Optional;
         icon = "functions"
 )
 public class TbPrologisAlarmNode implements TbNode {
+
     private TbPrologisAlarmNodeConfiguration config;
     private Gson gson;
+    private Asset building;
 
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
         config = TbNodeUtils.convert(configuration, TbPrologisAlarmNodeConfiguration.class);
         gson = new Gson();
+        EntityId originatorId = EntityIdFactory.getByTypeAndUuid(config.getOriginatorType(), config.getOriginatorId());
+        building = ctx.getAssetService().findAssetById(ctx.getTenantId(), new AssetId(originatorId.getId()));
+        if (building == null) {
+            throw new RuntimeException("Failed to find building: " + originatorId);
+        }
     }
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) {
-        Asset building = ctx.getAssetService().findAssetByTenantIdAndName(ctx.getTenantId(), config.getBuildingName());
-        if (building == null) {
-            ctx.tellFailure(msg, new RuntimeException("Can't find asset with name " + config.getBuildingName()));
-            return;
-        }
         ListenableFuture<List<Device>> deviceFutures = ctx.getDeviceService()
                 .findDevicesByQuery(ctx.getTenantId(), buildQuery(building.getId()));
         ListenableFuture<List<Device>> filteredDeviceFuture = Futures.transformAsync(deviceFutures, devices -> {
