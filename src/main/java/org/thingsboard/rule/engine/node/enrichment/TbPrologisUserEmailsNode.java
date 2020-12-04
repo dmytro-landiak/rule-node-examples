@@ -73,7 +73,7 @@ public class TbPrologisUserEmailsNode implements TbNode {
                 if (prologis != null) {
                     List<UserId> entityIds = entityRelations
                             .stream()
-                            .map(EntityRelation::getFrom)
+                            .map(EntityRelation::getTo)
                             .map(entityId -> new UserId(entityId.getId()))
                             .collect(Collectors.toList());
                     return Futures.transform(ctx.getUserService().findUsersByTenantIdAndIdsAsync(ctx.getTenantId(), entityIds), users -> {
@@ -92,8 +92,9 @@ public class TbPrologisUserEmailsNode implements TbNode {
 
     private EntityRelationsQuery getEntityRelationsQuery(EntityId originatorId) {
         RelationsSearchParameters relationsSearchParameters = new RelationsSearchParameters(originatorId,
-                EntitySearchDirection.TO, 3, true);
-        EntityTypeFilter entityTypeFilter = new EntityTypeFilter("FromUserToBuilding", Collections.singletonList(EntityType.USER));
+                EntitySearchDirection.TO, 4, true);
+        EntityTypeFilter entityTypeFilter = new EntityTypeFilter("FromCustomerToTech", Collections.singletonList(EntityType.CUSTOMER));
+
         EntityRelationsQuery entityRelationsQuery = new EntityRelationsQuery();
         entityRelationsQuery.setParameters(relationsSearchParameters);
         entityRelationsQuery.setFilters(Collections.singletonList(entityTypeFilter));
