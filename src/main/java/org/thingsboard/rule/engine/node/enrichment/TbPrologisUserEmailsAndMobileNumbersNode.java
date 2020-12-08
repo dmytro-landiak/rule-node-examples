@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
         nodeDetails = "",
         configDirective = "tbNodeEmptyConfig"
 )
-public class TbPrologisUserEmailsNode implements TbNode {
+public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
     private final static String NOTIFICATION_TYPE = "notificationType";
     private final static String MOBILE_PHONE_NUMBER = "mobilePhoneNumber";
     private final static String EMAIL_NOTIFICATION = "email";
