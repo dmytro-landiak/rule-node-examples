@@ -20,7 +20,12 @@ import com.google.common.util.concurrent.ListenableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 import org.thingsboard.common.util.DonAsynchron;
-import org.thingsboard.rule.engine.api.*;
+import org.thingsboard.rule.engine.api.EmptyNodeConfiguration;
+import org.thingsboard.rule.engine.api.RuleNode;
+import org.thingsboard.rule.engine.api.TbContext;
+import org.thingsboard.rule.engine.api.TbNode;
+import org.thingsboard.rule.engine.api.TbNodeConfiguration;
+import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.Customer;
 import org.thingsboard.server.common.data.EntityType;
@@ -29,23 +34,33 @@ import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.id.UserId;
 import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 import org.thingsboard.server.common.data.plugin.ComponentType;
-import org.thingsboard.server.common.data.relation.*;
+import org.thingsboard.server.common.data.relation.EntityRelation;
+import org.thingsboard.server.common.data.relation.EntityRelationsQuery;
+import org.thingsboard.server.common.data.relation.EntitySearchDirection;
+import org.thingsboard.server.common.data.relation.EntityTypeFilter;
+import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
 import org.thingsboard.server.common.msg.TbMsgMetaData;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
 @RuleNode(
         type = ComponentType.ENRICHMENT,
-        name = "users numbers and emails",
+        name = "prologis user numbers and emails",
         configClazz = EmptyNodeConfiguration.class,
         nodeDescription = "",
         nodeDetails = "",
         configDirective = "tbNodeEmptyConfig"
 )
 public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
+
     private final static String NOTIFICATION_TYPE = "notificationType";
     private final static String MOBILE_PHONE_NUMBER = "mobilePhoneNumber";
     private final static String EMAIL_NOTIFICATION = "email";
@@ -53,6 +68,7 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
     private final static String ALL_NOTIFICATION = "all";
 
     private final static List<String> ATTRIBUTES = Arrays.asList(NOTIFICATION_TYPE, MOBILE_PHONE_NUMBER);
+
     private EmptyNodeConfiguration config;
     private Customer prologis;
 
@@ -80,14 +96,13 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
                             List<String> mobileNumbers = new ArrayList<>();
                             Map<User, ListenableFuture<List<AttributeKvEntry>>> usersAttributes = getUsersAttributes(ctx, users);
                             List<ListenableFuture<Void>> updateEmailsAndMobileNumbersFutures = new ArrayList<>();
-                            for (Map.Entry<User, ListenableFuture<List<AttributeKvEntry>>> entry: usersAttributes.entrySet()) {
-                                updateEmailsAndMobileNumbersFutures.add(Futures.transform(entry.getValue(), attributeKvEntries ->  {
-                                    User tempUser = entry.getKey();
-                                    updateEmailsAndPhoneNumbers(tempUser, attributeKvEntries, emails, mobileNumbers);
+                            for (Map.Entry<User, ListenableFuture<List<AttributeKvEntry>>> entry : usersAttributes.entrySet()) {
+                                updateEmailsAndMobileNumbersFutures.add(Futures.transform(entry.getValue(), attributeKvEntries -> {
+                                    updateEmailsAndPhoneNumbers(entry.getKey(), attributeKvEntries, emails, mobileNumbers);
                                     return null;
                                 }, ctx.getDbCallbackExecutor()));
                             }
-                            Futures.transform(Futures.allAsList(updateEmailsAndMobileNumbersFutures), voids -> {
+                            return Futures.transform(Futures.allAsList(updateEmailsAndMobileNumbersFutures), voids -> {
                                 sendMessages(msg, ctx, emails, mobileNumbers);
                                 return null;
                             }, ctx.getDbCallbackExecutor());
@@ -119,16 +134,16 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
                     emails.add(user.getEmail());
                     break;
                 default:
-                    log.warn("User with email={} doesn't have valid notification type", user.getEmail());
+                    log.warn("User with email = {} doesn't have valid notification type", user.getEmail());
             }
         } else {
-            log.warn("User with email={} doesn't have notificationType attribute", user.getEmail());
+            log.warn("User with email = {} doesn't have notificationType attribute", user.getEmail());
         }
     }
 
     private Map<User, ListenableFuture<List<AttributeKvEntry>>> getUsersAttributes(TbContext ctx, List<User> users) {
         Map<User, ListenableFuture<List<AttributeKvEntry>>> usersAttributes = new HashMap<>();
-        for (User user: users) {
+        for (User user : users) {
             ListenableFuture<List<AttributeKvEntry>> attributesFuture =
                     ctx.getAttributesService().find(ctx.getTenantId(), user.getId(), "SERVER_SCOPE", ATTRIBUTES);
             usersAttributes.put(user, attributesFuture);
@@ -152,23 +167,22 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
 
     private Map<String, String> getAttributesMap(List<AttributeKvEntry> attributeKvEntries) {
         Map<String, String> resMap = new HashMap<>();
-        for (AttributeKvEntry attributeKvEntry: attributeKvEntries) {
-            String value = attributeKvEntry.getValueAsString();
-            resMap.put(attributeKvEntry.getKey(), value);
+        for (AttributeKvEntry attributeKvEntry : attributeKvEntries) {
+            resMap.put(attributeKvEntry.getKey(), attributeKvEntry.getValueAsString());
         }
         return resMap;
     }
 
     private void addToMobileNumbersList(Map<String, String> attributesMap, User user, List<String> mobileNumbers) {
         if (!attributesMap.containsKey(MOBILE_PHONE_NUMBER)) {
-            log.warn("User with email={} doesn't have mobilePhoneNumber attribute", user.getEmail());
+            log.warn("User with email = {} doesn't have mobilePhoneNumber attribute", user.getEmail());
             return;
         }
         String phoneNumber = attributesMap.get(MOBILE_PHONE_NUMBER);
         if (phoneNumber != null && !phoneNumber.isEmpty()) {
-            mobileNumbers.add(attributesMap.get(MOBILE_PHONE_NUMBER));
+            mobileNumbers.add(phoneNumber);
         } else {
-            log.warn("User with email={} have empty mobilePhoneNumber attribute", user.getEmail());
+            log.warn("User with email = {} have empty mobilePhoneNumber attribute", user.getEmail());
         }
     }
 
