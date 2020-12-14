@@ -55,8 +55,10 @@ import java.util.stream.Collectors;
         type = ComponentType.ENRICHMENT,
         name = "prologis user numbers and emails",
         configClazz = EmptyNodeConfiguration.class,
-        nodeDescription = "",
-        nodeDetails = "",
+        nodeDescription = "Add user numbers and emails to Message Metadata",
+        nodeDetails = "Get user notification preference based on the notificationType attribute.\n" +
+                "The node pushes messages with type [email] and [sms] with filled Message Metadata with comma-separated list\n" +
+                "of emails and mobile numbers.",
         configDirective = "tbNodeEmptyConfig"
 )
 public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {

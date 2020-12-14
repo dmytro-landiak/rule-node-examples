@@ -20,6 +20,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.CollectionUtils;
 import org.thingsboard.common.util.DonAsynchron;
 import org.thingsboard.rule.engine.api.RuleNode;
 import org.thingsboard.rule.engine.api.TbContext;
@@ -55,8 +56,18 @@ import java.util.Optional;
         type = ComponentType.ANALYTICS,
         name = "prologis alarm",
         configClazz = TbPrologisAlarmNodeConfiguration.class,
-        nodeDescription = "",
-        nodeDetails = "",
+        nodeDescription = "Create or Update Alarm",
+        nodeDetails = "Fetch telemetry for the found devices by label + model in a building.\n" +
+                "Example:\n" +
+                "Originator type - Asset.\n" +
+                "Asset - 1010 Foster Avenue Bensenville IL 60106-1446.\n" +
+                "Device Label - Jockey Pump 01.\n" +
+                "Device Model - Thingsee Environment v5  (Black) US.\n" +
+                "Thresholds logic:\n" +
+                "If thresholds are specified - find out if there is at least one record that matches the condition:\n" +
+                "value > max threshold or value < min threshold means the alarm should be created.\n" +
+                "If the thresholds are not specified - in case there is at least one record, an alarm should be created.\n" +
+                "To create an alarm - you should connect this Rule Node with “Create Alarm” node.",
         uiResources = {"static/rulenode/custom-nodes-config.js"},
         configDirective = "tbPrologisAnalyticsAlarmNodeConfig",
         icon = "functions"
@@ -121,19 +132,18 @@ public class TbPrologisAlarmNode implements TbNode {
                     tbMsgFutures.add(Futures.transform(tsFutures, tsKvEntries -> {
                         TbMsg tbMsg = TbMsg.newMsg(msg.getQueueName(), msg.getType(), device.getId(),
                                 msg.getMetaData(), msg.getData());
-                        if (tsKvEntries != null && !tsKvEntries.isEmpty()) {
+                        if (CollectionUtils.isEmpty(tsKvEntries)) {
+                            tbMsg.getMetaData().putValue("alarm", "false");
+                        } else {
                             if (config.getMaxThresholdValue() == null
                                     && config.getMinThresholdValue() == null) {
                                 tbMsg.getMetaData().putValue("alarm", "true");
-                                tbMsg.getMetaData().putValue("description", "Not found time-series on this interval");
                             } else {
-                                tbMsg.getMetaData().putValue("alarm", "false");
-                            }
-                        } else {
-                            if (tsKvEntries.stream().anyMatch(this::compareWithMinAndMaxThreshold)) {
-                                tbMsg.getMetaData().putValue("alarm", "true");
-                            } else {
-                                tbMsg.getMetaData().putValue("alarm", "false");
+                                if (tsKvEntries.stream().anyMatch(this::compareWithMinAndMaxThreshold)) {
+                                    tbMsg.getMetaData().putValue("alarm", "true");
+                                } else {
+                                    tbMsg.getMetaData().putValue("alarm", "false");
+                                }
                             }
                         }
                         return tbMsg;
@@ -163,9 +173,6 @@ public class TbPrologisAlarmNode implements TbNode {
             return false;
         }
         int value = gson.fromJson(jsonValueOptional.get(), JsonObject.class).get("VALUE").getAsInt();
-        if (config.getMinThresholdValue() == null && config.getMaxThresholdValue() == null) {
-            return false;
-        }
         if (config.getMinThresholdValue() != null && config.getMaxThresholdValue() != null) {
             return value > config.getMaxThresholdValue()
                     || value < config.getMinThresholdValue();
