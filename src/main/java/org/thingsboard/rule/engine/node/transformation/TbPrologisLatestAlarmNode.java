@@ -45,7 +45,7 @@ import java.util.concurrent.ExecutionException;
                 "If alarmType field isn't present, or originator of message doesn't have alarm, or alarm of this type is cleared " +
                 "then original message is returned with \"Not Found\" relation type. " +
                 "Otherwise, a new message is created with alarm data and returned with \"Success\" relation type.",
-        uiResources = {"static/rulenode/custom-nodes-config.js"},
+        uiResources = {"static/rulenode/rulenode-core-config.js"},
         configDirective = "tbNodeEmptyConfig")
 public class TbPrologisLatestAlarmNode implements TbNode {
 
