@@ -1,3 +1,18 @@
+/**
+ * Copyright © 2018 The Thingsboard Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.thingsboard.rule.engine.node.enrichment;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -10,39 +25,55 @@ import com.google.common.util.concurrent.ListenableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 import org.thingsboard.common.util.DonAsynchron;
-import org.thingsboard.rule.engine.api.*;
+import org.thingsboard.rule.engine.api.RuleNode;
+import org.thingsboard.rule.engine.api.TbContext;
+import org.thingsboard.rule.engine.api.TbNode;
+import org.thingsboard.rule.engine.api.TbNodeConfiguration;
+import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.EntityType;
 import org.thingsboard.server.common.data.asset.Asset;
-import org.thingsboard.server.common.data.id.*;
+import org.thingsboard.server.common.data.id.AssetId;
+import org.thingsboard.server.common.data.id.DashboardId;
+import org.thingsboard.server.common.data.id.EntityId;
+import org.thingsboard.server.common.data.id.IdBased;
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.plugin.ComponentType;
-import org.thingsboard.server.common.data.relation.*;
+import org.thingsboard.server.common.data.relation.EntityRelation;
+import org.thingsboard.server.common.data.relation.EntityRelationsQuery;
+import org.thingsboard.server.common.data.relation.EntitySearchDirection;
+import org.thingsboard.server.common.data.relation.EntityTypeFilter;
+import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
 
-import java.util.*;
+import java.util.Base64;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
 @Slf4j
 @RuleNode(
         type = ComponentType.ENRICHMENT,
         name = "prologis alarm link",
-        configClazz = EmptyNodeConfiguration.class,
-        nodeDescription = "",
-        nodeDetails = "",
-        configDirective = "tbNodeEmptyConfig")
+        configClazz = TbPrologisAlarmLinkNodeConfiguration.class,
+        nodeDescription = "Generates link to alarm",
+        nodeDetails = "Generate a link of alarm and set it to message metadata in \"alarmLink\" field.",
+        configDirective = "tbPrologisEnrichmentAlarmLinkNodeConfig")
 public class TbPrologisAlarmLinkNode implements TbNode {
+
     private static final String DASHBOARD_NAME = "Pump Rooms";
-    private static final String LINK_PREFIX = "http://localhost:8080/dashboards/";
     private static final String STATE = "/?state=";
     private static final String ID_BUILDINGS = "buildings";
     private static final String ID_BUILDING_INDICATORS = "building_indicators_and_card_with_move_count";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private EmptyNodeConfiguration config;
+
+    private TbPrologisAlarmLinkNodeConfiguration config;
     private DashboardId dashboardId;
+
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
-        config = TbNodeUtils.convert(configuration, EmptyNodeConfiguration.class);
+        config = TbNodeUtils.convert(configuration, TbPrologisAlarmLinkNodeConfiguration.class);
         Optional<DashboardId> dashboardIdOptional = ctx.getDashboardService()
                 .findDashboardsByTenantId(ctx.getTenantId(), new PageLink(1000))
                 .getData()
@@ -53,7 +84,8 @@ public class TbPrologisAlarmLinkNode implements TbNode {
         if (dashboardIdOptional.isPresent()) {
             dashboardId = dashboardIdOptional.get();
         } else {
-            log.warn("Didn't find dashboard with name = {}", DASHBOARD_NAME);
+            log.error("Didn't find dashboard with name = {}", DASHBOARD_NAME);
+            throw new RuntimeException("Didn't find dashboard with name = " + DASHBOARD_NAME);
         }
     }
 
@@ -64,13 +96,13 @@ public class TbPrologisAlarmLinkNode implements TbNode {
                 try {
                     byte[] bytes = OBJECT_MAPPER.writeValueAsBytes(arrayNode);
                     String encodeToString = Base64.getEncoder().encodeToString(bytes);
-                    String alarmLink = LINK_PREFIX +
+                    String alarmLink = this.config.getLinkPrefix() +
                             dashboardId.getId() +
                             STATE +
                             encodeToString;
                     msg.getMetaData().putValue("alarmLink", alarmLink);
                 } catch (JsonProcessingException e) {
-                    log.warn("Didn't parse json to bytes, error = []", e);
+                    log.warn("Didn't parse json to bytes!", e);
                 }
             }
             ctx.tellSuccess(msg);
@@ -95,7 +127,7 @@ public class TbPrologisAlarmLinkNode implements TbNode {
             arrayNode.add(firstObject);
             arrayNode.add(secondObject);
             return arrayNode;
-        },ctx.getDbCallbackExecutor());
+        }, ctx.getDbCallbackExecutor());
     }
 
     private ListenableFuture<ObjectNode> getParams(TbContext ctx, TbMsg msg) {
@@ -127,7 +159,7 @@ public class TbPrologisAlarmLinkNode implements TbNode {
             } else {
                 log.warn("Didn't find building for device with id = {}", msg.getOriginator());
             }
-         return null;
+            return null;
         }, ctx.getDbCallbackExecutor());
     }
 
@@ -136,11 +168,10 @@ public class TbPrologisAlarmLinkNode implements TbNode {
                 .findByQuery(ctx.getTenantId(), getEntityRelationsQuery(originator));
         return Futures.transform(entityRelationsFuture, entityRelations -> {
             if (!CollectionUtils.isEmpty(entityRelations)) {
-                EntityId buildingId = entityRelations.get(0).getFrom();
-                return ctx.getAssetService().findAssetById(ctx.getTenantId(), new AssetId(buildingId.getId()));
+                return ctx.getAssetService().findAssetById(ctx.getTenantId(), new AssetId(entityRelations.get(0).getFrom().getId()));
             }
             return null;
-        },ctx.getDbCallbackExecutor());
+        }, ctx.getDbCallbackExecutor());
     }
 
     private EntityRelationsQuery getEntityRelationsQuery(EntityId originatorId) {
