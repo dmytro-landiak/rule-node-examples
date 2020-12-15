@@ -43,7 +43,7 @@ import static org.thingsboard.server.common.data.DataConstants.SERVER_SCOPE;
         configClazz = TbPrologisEntityGroupAttributesNodeConfiguration.class,
         nodeDescription = "Add Entity Group Attributes into Message Metadata",
         nodeDetails = "Server scope attributes are added into Message metadata. To access those attributes in other nodes this template can be used metadata.temperature",
-        uiResources = {"static/rulenode/rulenode-core-config.js"},
+        uiResources = {"static/rulenode/custom-nodes-config.js"},
         configDirective = "tbPrologisEnrichmentAttributesNodeConfig")
 public class TbPrologisEntityGroupAttributesNode implements TbNode {
 

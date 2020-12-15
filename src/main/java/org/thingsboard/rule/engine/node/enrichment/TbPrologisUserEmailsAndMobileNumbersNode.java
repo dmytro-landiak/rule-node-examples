@@ -59,6 +59,7 @@ import java.util.stream.Collectors;
         nodeDetails = "Get user notification preference based on the notificationType attribute.\n" +
                 "The node pushes messages with type [email] and [sms] with filled Message Metadata with comma-separated list\n" +
                 "of emails and mobile numbers.",
+        uiResources = {"static/rulenode/custom-nodes-config.js"},
         configDirective = "tbNodeEmptyConfig"
 )
 public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {

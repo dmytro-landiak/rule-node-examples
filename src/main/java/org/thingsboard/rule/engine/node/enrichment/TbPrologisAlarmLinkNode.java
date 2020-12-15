@@ -59,6 +59,7 @@ import java.util.concurrent.ExecutionException;
         configClazz = TbPrologisAlarmLinkNodeConfiguration.class,
         nodeDescription = "Generates link to alarm",
         nodeDetails = "Generate a link of alarm and set it to message metadata in \"alarmLink\" field.",
+        uiResources = {"static/rulenode/custom-nodes-config.js"},
         configDirective = "tbPrologisEnrichmentAlarmLinkNodeConfig")
 public class TbPrologisAlarmLinkNode implements TbNode {
 
