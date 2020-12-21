@@ -1,3 +1,18 @@
+/**
+ * Copyright © 2018 The Thingsboard Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.thingsboard.rule.engine.node.filter;
 
 import com.google.common.util.concurrent.Futures;
@@ -5,7 +20,11 @@ import com.google.common.util.concurrent.ListenableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 import org.thingsboard.common.util.DonAsynchron;
-import org.thingsboard.rule.engine.api.*;
+import org.thingsboard.rule.engine.api.RuleNode;
+import org.thingsboard.rule.engine.api.TbContext;
+import org.thingsboard.rule.engine.api.TbNode;
+import org.thingsboard.rule.engine.api.TbNodeConfiguration;
+import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.EntityType;
@@ -15,7 +34,11 @@ import org.thingsboard.server.common.data.kv.Aggregation;
 import org.thingsboard.server.common.data.kv.BaseReadTsKvQuery;
 import org.thingsboard.server.common.data.kv.TsKvEntry;
 import org.thingsboard.server.common.data.plugin.ComponentType;
-import org.thingsboard.server.common.data.relation.*;
+import org.thingsboard.server.common.data.relation.EntityRelation;
+import org.thingsboard.server.common.data.relation.EntityRelationsQuery;
+import org.thingsboard.server.common.data.relation.EntitySearchDirection;
+import org.thingsboard.server.common.data.relation.EntityTypeFilter;
+import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
 
 import java.util.ArrayList;
@@ -58,7 +81,7 @@ public class TbPrologisActivePumpAlarmNode implements TbNode {
                 = ctx.getRelationService().findByQuery(ctx.getTenantId(), toObservesZoneRelationsQuery);
         ListenableFuture<Long> sumOfTimeseriesFuture = Futures.transformAsync(toObservesZoneRelationsFuture, toObservesZoneRelations -> {
             if (!CollectionUtils.isEmpty(toObservesZoneRelations)) {
-                return getTimeseriesForDevices(ctx, msg, getDoorDevices(ctx, msg, toObservesZoneRelations.get(0).getFrom()));
+                return getTimeseriesForDevices(ctx, getDoorDevices(ctx, toObservesZoneRelations.get(0).getFrom()));
             } else {
                 log.error("Didn't find relations with type = {} for device with id = {}", OBSERVES_ZONE, msg.getOriginator());
                 return Futures.immediateFuture(null);
@@ -75,10 +98,10 @@ public class TbPrologisActivePumpAlarmNode implements TbNode {
             } else {
                 ctx.ack(msg);
             }
-        }, e-> ctx.tellFailure(msg, e));
+        }, e -> ctx.tellFailure(msg, e));
     }
 
-    private ListenableFuture<Long> getTimeseriesForDevices(TbContext ctx,  TbMsg msg, ListenableFuture<List<Device>> doorDevicesFuture) {
+    private ListenableFuture<Long> getTimeseriesForDevices(TbContext ctx, ListenableFuture<List<Device>> doorDevicesFuture) {
         return Futures.transformAsync(doorDevicesFuture, doorDevices -> {
             if (CollectionUtils.isEmpty(doorDevices)) {
                 log.error("Did't find {} devices", DOOR);
@@ -86,16 +109,16 @@ public class TbPrologisActivePumpAlarmNode implements TbNode {
             }
             long endTs = System.currentTimeMillis();
             List<ListenableFuture<List<TsKvEntry>>> timeSeriesFutures = new ArrayList<>();
-            for (Device door: doorDevices) {
+            for (Device door : doorDevices) {
                 timeSeriesFutures.add(ctx.getTimeseriesService()
                         .findAll(ctx.getTenantId(), door.getId(),
                                 Collections.singletonList(new BaseReadTsKvQuery(config.getTelemetryKey(),
                                         endTs - interval, endTs, interval, 1000, Aggregation.SUM))));
             }
-            return Futures.transform(Futures.allAsList(timeSeriesFutures), listOfTsKvEntries ->  {
+            return Futures.transform(Futures.allAsList(timeSeriesFutures), listOfTsKvEntries -> {
                 if (!CollectionUtils.isEmpty(listOfTsKvEntries)) {
                     long result = 0L;
-                    for (List<TsKvEntry> tempList: listOfTsKvEntries) {
+                    for (List<TsKvEntry> tempList : listOfTsKvEntries) {
                         if (!CollectionUtils.isEmpty(tempList)) {
                             Optional<Long> longValue = tempList.get(0).getLongValue();
                             if (longValue.isPresent()) {
@@ -111,7 +134,7 @@ public class TbPrologisActivePumpAlarmNode implements TbNode {
         }, ctx.getDbCallbackExecutor());
     }
 
-    private ListenableFuture<List<Device>> getDoorDevices(TbContext ctx, TbMsg msg, EntityId zoneId) {
+    private ListenableFuture<List<Device>> getDoorDevices(TbContext ctx, EntityId zoneId) {
         EntityRelationsQuery fromObservesZoneRelationsQuery = getEntityRelationsQuery(zoneId, EntitySearchDirection.FROM, EntityType.DEVICE);
         ListenableFuture<List<EntityRelation>> fromObservesZoneRelationsFuture
                 = ctx.getRelationService().findByQuery(ctx.getTenantId(), fromObservesZoneRelationsQuery);
@@ -131,18 +154,18 @@ public class TbPrologisActivePumpAlarmNode implements TbNode {
                                 .collect(Collectors.toList());
                     }
                     return null;
-                },ctx.getDbCallbackExecutor());
+                }, ctx.getDbCallbackExecutor());
             } else {
                 log.error("Didn't find devices for Zone[id = {}] by relation = {}", zoneId, OBSERVES_ZONE);
                 return Futures.immediateFuture(null);
             }
-        },ctx.getDbCallbackExecutor());
+        }, ctx.getDbCallbackExecutor());
     }
 
     private EntityRelationsQuery getEntityRelationsQuery(EntityId originatorId,
                                                          EntitySearchDirection searchDirection, EntityType entityType) {
         RelationsSearchParameters relationsSearchParameters
-                = new RelationsSearchParameters(originatorId, searchDirection,1, true);
+                = new RelationsSearchParameters(originatorId, searchDirection, 1, true);
         EntityTypeFilter entityTypeFilter = new EntityTypeFilter(OBSERVES_ZONE, Collections.singletonList(entityType));
         EntityRelationsQuery entityRelationsQuery = new EntityRelationsQuery();
         entityRelationsQuery.setParameters(relationsSearchParameters);
