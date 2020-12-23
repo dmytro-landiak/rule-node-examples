@@ -17,6 +17,7 @@ package org.thingsboard.rule.engine.node.enrichment;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 import org.thingsboard.common.util.DonAsynchron;
@@ -75,6 +76,19 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
     private EmptyNodeConfiguration config;
     private Customer prologis;
 
+    @Data
+    private static class UsersData {
+        private final List<String> fullNames = new ArrayList<>();
+        private final List<String> sourceOfCommunicateWay = new ArrayList<>();
+
+        public void addFullName(String fullName) {
+            fullNames.add(fullName);
+        }
+
+        public void addSourceOfCommunicateWay(String string) {
+            sourceOfCommunicateWay.add(string);
+        }
+    }
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
         config = TbNodeUtils.convert(configuration, EmptyNodeConfiguration.class);
@@ -83,6 +97,7 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) {
+        ctx.ack(msg);
         EntityRelationsQuery entityRelationsQuery = getEntityRelationsQuery(msg.getOriginator());
         ListenableFuture<List<EntityRelation>> future = ctx.getRelationService().findByQuery(ctx.getTenantId(), entityRelationsQuery);
         ListenableFuture<Void> resFuture = Futures.transformAsync(future, entityRelations -> {
@@ -95,18 +110,18 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
                             .collect(Collectors.toList());
                     return Futures.transformAsync(ctx.getUserService().findUsersByTenantIdAndIdsAsync(ctx.getTenantId(), entityIds), users -> {
                         if (!CollectionUtils.isEmpty(users)) {
-                            List<String> emails = new ArrayList<>();
-                            List<String> mobileNumbers = new ArrayList<>();
+                            UsersData fullNamesAndEmails = new UsersData();
+                            UsersData fullNamesAndMobileNumbers = new UsersData();
                             Map<User, ListenableFuture<List<AttributeKvEntry>>> usersAttributes = getUsersAttributes(ctx, users);
                             List<ListenableFuture<Void>> updateEmailsAndMobileNumbersFutures = new ArrayList<>();
                             for (Map.Entry<User, ListenableFuture<List<AttributeKvEntry>>> entry : usersAttributes.entrySet()) {
                                 updateEmailsAndMobileNumbersFutures.add(Futures.transform(entry.getValue(), attributeKvEntries -> {
-                                    updateEmailsAndPhoneNumbers(entry.getKey(), attributeKvEntries, emails, mobileNumbers);
+                                    updateEmailsAndPhoneNumbers(entry.getKey(), attributeKvEntries, fullNamesAndEmails, fullNamesAndMobileNumbers);
                                     return null;
                                 }, ctx.getDbCallbackExecutor()));
                             }
                             return Futures.transform(Futures.allAsList(updateEmailsAndMobileNumbersFutures), voids -> {
-                                sendMessages(msg, ctx, emails, mobileNumbers);
+                                sendMessages(msg, ctx, fullNamesAndEmails, fullNamesAndMobileNumbers);
                                 return null;
                             }, ctx.getDbCallbackExecutor());
                         }
@@ -119,7 +134,8 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
         DonAsynchron.withCallback(resFuture, v -> ctx.tellSuccess(msg), throwable -> ctx.tellFailure(msg, throwable));
     }
 
-    private void updateEmailsAndPhoneNumbers(User user, List<AttributeKvEntry> attributeKvEntries, List<String> emails, List<String> mobileNumbers) {
+    private void updateEmailsAndPhoneNumbers(User user, List<AttributeKvEntry> attributeKvEntries,
+                                             UsersData fullNamesAndEmails, UsersData fullNamesAndMobileNumbers) {
         if (CollectionUtils.isEmpty(attributeKvEntries)) {
             return;
         }
@@ -127,14 +143,17 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
         if (attributesMap.containsKey(NOTIFICATION_TYPE)) {
             switch (attributesMap.get(NOTIFICATION_TYPE)) {
                 case EMAIL_NOTIFICATION:
-                    emails.add(user.getEmail());
+                    fullNamesAndEmails.addFullName(user.getFirstName() + " " + user.getLastName());
+                    fullNamesAndEmails.addSourceOfCommunicateWay(user.getEmail());
                     break;
                 case SMS_NOTIFICATION:
-                    addToMobileNumbersList(attributesMap, user, mobileNumbers);
+                    addToMobileNumbersList(attributesMap, user, fullNamesAndMobileNumbers);
                     break;
                 case ALL_NOTIFICATION:
-                    addToMobileNumbersList(attributesMap, user, mobileNumbers);
-                    emails.add(user.getEmail());
+                    addToMobileNumbersList(attributesMap, user, fullNamesAndMobileNumbers);
+
+                    fullNamesAndEmails.addFullName(user.getFirstName() + " " + user.getLastName());
+                    fullNamesAndEmails.addSourceOfCommunicateWay(user.getEmail());
                     break;
                 default:
                     log.warn("User with email = {} doesn't have valid notification type", user.getEmail());
@@ -154,16 +173,17 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
         return usersAttributes;
     }
 
-    private void sendMessages(TbMsg msg, TbContext ctx, List<String> emails, List<String> mobileNumbers) {
-        ctx.ack(msg);
-        if (!emails.isEmpty()) {
+    private void sendMessages(TbMsg msg, TbContext ctx, UsersData fullNamesAndEmails, UsersData fullNamesAndMobileNumbers) {
+        if (!fullNamesAndEmails.getSourceOfCommunicateWay().isEmpty()) {
             TbMsgMetaData metaData = msg.getMetaData().copy();
-            metaData.putValue("emails", String.join(",", emails));
+            metaData.putValue("emails", String.join(",", fullNamesAndEmails.getSourceOfCommunicateWay()));
+            metaData.putValue("fullNames", String.join(",", fullNamesAndEmails.getFullNames()));
             ctx.tellSuccess(TbMsg.newMsg(EMAIL_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
         }
-        if (!mobileNumbers.isEmpty()) {
+        if (!fullNamesAndMobileNumbers.getSourceOfCommunicateWay().isEmpty()) {
             TbMsgMetaData metaData = msg.getMetaData().copy();
-            metaData.putValue("mobilePhoneNumbers", String.join(",", mobileNumbers));
+            metaData.putValue("mobilePhoneNumbers", String.join(",", fullNamesAndMobileNumbers.getSourceOfCommunicateWay()));
+            metaData.putValue("fullNames", String.join(",", fullNamesAndMobileNumbers.getFullNames()));
             ctx.tellSuccess(TbMsg.newMsg(SMS_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
         }
     }
@@ -176,14 +196,15 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
         return resMap;
     }
 
-    private void addToMobileNumbersList(Map<String, String> attributesMap, User user, List<String> mobileNumbers) {
+    private void addToMobileNumbersList(Map<String, String> attributesMap, User user, UsersData fullNamesAndMobileNumbers) {
         if (!attributesMap.containsKey(MOBILE_PHONE_NUMBER)) {
             log.warn("User with email = {} doesn't have mobilePhoneNumber attribute", user.getEmail());
             return;
         }
         String phoneNumber = attributesMap.get(MOBILE_PHONE_NUMBER);
         if (phoneNumber != null && !phoneNumber.isEmpty()) {
-            mobileNumbers.add(phoneNumber);
+            fullNamesAndMobileNumbers.addFullName(user.getFirstName() + " " + user.getLastName());
+            fullNamesAndMobileNumbers.addSourceOfCommunicateWay(phoneNumber);
         } else {
             log.warn("User with email = {} have empty mobilePhoneNumber attribute", user.getEmail());
         }
