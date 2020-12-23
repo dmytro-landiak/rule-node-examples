@@ -17,6 +17,7 @@ package org.thingsboard.rule.engine.node.enrichment;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import kotlin.random.AbstractPlatformRandom;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
@@ -97,10 +98,9 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) {
-        ctx.ack(msg);
         EntityRelationsQuery entityRelationsQuery = getEntityRelationsQuery(msg.getOriginator());
         ListenableFuture<List<EntityRelation>> future = ctx.getRelationService().findByQuery(ctx.getTenantId(), entityRelationsQuery);
-        ListenableFuture<Void> resFuture = Futures.transformAsync(future, entityRelations -> {
+        ListenableFuture<List<TbMsg>> messagesFuture = Futures.transformAsync(future, entityRelations -> {
             if (!CollectionUtils.isEmpty(entityRelations)) {
                 if (prologis != null) {
                     List<UserId> entityIds = entityRelations
@@ -120,10 +120,8 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
                                     return null;
                                 }, ctx.getDbCallbackExecutor()));
                             }
-                            return Futures.transform(Futures.allAsList(updateEmailsAndMobileNumbersFutures), voids -> {
-                                sendMessages(msg, ctx, fullNamesAndEmails, fullNamesAndMobileNumbers);
-                                return null;
-                            }, ctx.getDbCallbackExecutor());
+                            return Futures.transform(Futures.allAsList(updateEmailsAndMobileNumbersFutures),
+                                    voids -> getMessages(msg, ctx, fullNamesAndEmails, fullNamesAndMobileNumbers), ctx.getDbCallbackExecutor());
                         }
                         return Futures.immediateFuture(null);
                     }, ctx.getDbCallbackExecutor());
@@ -131,7 +129,15 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
             }
             return Futures.immediateFuture(null);
         }, ctx.getDbCallbackExecutor());
-        DonAsynchron.withCallback(resFuture, v -> ctx.tellSuccess(msg), throwable -> ctx.tellFailure(msg, throwable));
+        DonAsynchron.withCallback(messagesFuture, messages -> {
+                    if (!CollectionUtils.isEmpty(messages)) {
+                        for (TbMsg tempMsg: messages) {
+                            ctx.tellSuccess(tempMsg);
+                        }
+                    } else {
+                        ctx.ack(msg);
+                    }
+                }, throwable -> ctx.tellFailure(msg, throwable));
     }
 
     private void updateEmailsAndPhoneNumbers(User user, List<AttributeKvEntry> attributeKvEntries,
@@ -173,19 +179,21 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
         return usersAttributes;
     }
 
-    private void sendMessages(TbMsg msg, TbContext ctx, UsersData fullNamesAndEmails, UsersData fullNamesAndMobileNumbers) {
+    private List<TbMsg> getMessages(TbMsg msg, TbContext ctx, UsersData fullNamesAndEmails, UsersData fullNamesAndMobileNumbers) {
+        List<TbMsg> messages = new ArrayList<>();
         if (!fullNamesAndEmails.getSourceOfCommunicateWay().isEmpty()) {
             TbMsgMetaData metaData = msg.getMetaData().copy();
             metaData.putValue("emails", String.join(",", fullNamesAndEmails.getSourceOfCommunicateWay()));
             metaData.putValue("fullNames", String.join(",", fullNamesAndEmails.getFullNames()));
-            ctx.tellSuccess(TbMsg.newMsg(EMAIL_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
+            messages.add(TbMsg.newMsg(EMAIL_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
         }
         if (!fullNamesAndMobileNumbers.getSourceOfCommunicateWay().isEmpty()) {
             TbMsgMetaData metaData = msg.getMetaData().copy();
             metaData.putValue("mobilePhoneNumbers", String.join(",", fullNamesAndMobileNumbers.getSourceOfCommunicateWay()));
             metaData.putValue("fullNames", String.join(",", fullNamesAndMobileNumbers.getFullNames()));
-            ctx.tellSuccess(TbMsg.newMsg(SMS_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
+            messages.add(TbMsg.newMsg(SMS_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
         }
+        return messages;
     }
 
     private Map<String, String> getAttributesMap(List<AttributeKvEntry> attributeKvEntries) {
