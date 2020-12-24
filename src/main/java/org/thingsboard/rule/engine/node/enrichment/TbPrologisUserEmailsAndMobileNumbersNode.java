@@ -130,14 +130,13 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
             return Futures.immediateFuture(null);
         }, ctx.getDbCallbackExecutor());
         DonAsynchron.withCallback(messagesFuture, messages -> {
-                    if (!CollectionUtils.isEmpty(messages)) {
-                        for (TbMsg tempMsg: messages) {
-                            ctx.tellSuccess(tempMsg);
-                        }
-                    } else {
-                        ctx.ack(msg);
+                ctx.ack(msg);
+                if (!CollectionUtils.isEmpty(messages)) {
+                    for (TbMsg tempMsg: messages) {
+                        ctx.tellSuccess(tempMsg);
                     }
-                }, throwable -> ctx.tellFailure(msg, throwable));
+                }
+            }, throwable -> ctx.tellFailure(msg, throwable));
     }
 
     private void updateEmailsAndPhoneNumbers(User user, List<AttributeKvEntry> attributeKvEntries,
