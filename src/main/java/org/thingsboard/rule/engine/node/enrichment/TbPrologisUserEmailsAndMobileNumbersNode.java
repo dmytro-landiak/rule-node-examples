@@ -17,7 +17,6 @@ package org.thingsboard.rule.engine.node.enrichment;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import kotlin.random.AbstractPlatformRandom;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
@@ -30,6 +29,7 @@ import org.thingsboard.rule.engine.api.TbNodeConfiguration;
 import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.Customer;
+import org.thingsboard.server.common.data.DataConstants;
 import org.thingsboard.server.common.data.EntityType;
 import org.thingsboard.server.common.data.User;
 import org.thingsboard.server.common.data.id.EntityId;
@@ -77,19 +77,6 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
     private EmptyNodeConfiguration config;
     private Customer prologis;
 
-    @Data
-    private static class UsersData {
-        private final List<String> fullNames = new ArrayList<>();
-        private final List<String> sourceOfCommunicateWay = new ArrayList<>();
-
-        public void addFullName(String fullName) {
-            fullNames.add(fullName);
-        }
-
-        public void addSourceOfCommunicateWay(String string) {
-            sourceOfCommunicateWay.add(string);
-        }
-    }
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
         config = TbNodeUtils.convert(configuration, EmptyNodeConfiguration.class);
@@ -121,7 +108,7 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
                                 }, ctx.getDbCallbackExecutor()));
                             }
                             return Futures.transform(Futures.allAsList(updateEmailsAndMobileNumbersFutures),
-                                    voids -> getMessages(msg, ctx, fullNamesAndEmails, fullNamesAndMobileNumbers), ctx.getDbCallbackExecutor());
+                                    voids -> getMessages(msg, fullNamesAndEmails, fullNamesAndMobileNumbers), ctx.getDbCallbackExecutor());
                         }
                         return Futures.immediateFuture(null);
                     }, ctx.getDbCallbackExecutor());
@@ -130,13 +117,13 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
             return Futures.immediateFuture(null);
         }, ctx.getDbCallbackExecutor());
         DonAsynchron.withCallback(messagesFuture, messages -> {
-                ctx.ack(msg);
-                if (!CollectionUtils.isEmpty(messages)) {
-                    for (TbMsg tempMsg: messages) {
-                        ctx.tellSuccess(tempMsg);
-                    }
+            ctx.ack(msg);
+            if (!CollectionUtils.isEmpty(messages)) {
+                for (TbMsg tbMsg : messages) {
+                    ctx.tellSuccess(tbMsg);
                 }
-            }, throwable -> ctx.tellFailure(msg, throwable));
+            }
+        }, throwable -> ctx.tellFailure(msg, throwable));
     }
 
     private void updateEmailsAndPhoneNumbers(User user, List<AttributeKvEntry> attributeKvEntries,
@@ -171,14 +158,14 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
     private Map<User, ListenableFuture<List<AttributeKvEntry>>> getUsersAttributes(TbContext ctx, List<User> users) {
         Map<User, ListenableFuture<List<AttributeKvEntry>>> usersAttributes = new HashMap<>();
         for (User user : users) {
-            ListenableFuture<List<AttributeKvEntry>> attributesFuture =
-                    ctx.getAttributesService().find(ctx.getTenantId(), user.getId(), "SERVER_SCOPE", ATTRIBUTES);
+            ListenableFuture<List<AttributeKvEntry>> attributesFuture = ctx.getAttributesService()
+                    .find(ctx.getTenantId(), user.getId(), DataConstants.SERVER_SCOPE, ATTRIBUTES);
             usersAttributes.put(user, attributesFuture);
         }
         return usersAttributes;
     }
 
-    private List<TbMsg> getMessages(TbMsg msg, TbContext ctx, UsersData fullNamesAndEmails, UsersData fullNamesAndMobileNumbers) {
+    private List<TbMsg> getMessages(TbMsg msg, UsersData fullNamesAndEmails, UsersData fullNamesAndMobileNumbers) {
         List<TbMsg> messages = new ArrayList<>();
         if (!fullNamesAndEmails.getSourceOfCommunicateWay().isEmpty()) {
             TbMsgMetaData metaData = msg.getMetaData().copy();
@@ -232,4 +219,17 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
     public void destroy() {
     }
 
+    @Data
+    private static class UsersData {
+        private final List<String> fullNames = new ArrayList<>();
+        private final List<String> sourceOfCommunicateWay = new ArrayList<>();
+
+        void addFullName(String fullName) {
+            fullNames.add(fullName);
+        }
+
+        void addSourceOfCommunicateWay(String string) {
+            sourceOfCommunicateWay.add(string);
+        }
+    }
 }
