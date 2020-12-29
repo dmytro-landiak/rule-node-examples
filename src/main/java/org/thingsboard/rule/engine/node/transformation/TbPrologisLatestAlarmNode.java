@@ -38,8 +38,8 @@ import java.util.concurrent.ExecutionException;
         name = "prologis latest alarm",
         relationTypes = {"Success", "Not Found"},
         configClazz = EmptyNodeConfiguration.class,
-        nodeDescription = "Transform message data to last alarm data.",
-        nodeDetails = "Transform data of incoming message to last alarm data of message originator by alarm type.\n" +
+        nodeDescription = "Transform message data to latest alarm data.",
+        nodeDetails = "Transform data of incoming message to latest alarm data of message originator by alarm type.\n" +
                 "The value of alarm type is in metadata of incoming message in alarmType field.\n" +
                 "Node output:\n " +
                 "If alarmType field isn't present, or originator of message doesn't have alarm, or alarm of this type is cleared " +

@@ -23,6 +23,7 @@ public class TbPrologisTransformTelemetryToNewFormatNodeConfiguration
         implements NodeConfiguration<TbPrologisTransformTelemetryToNewFormatNodeConfiguration> {
 
     private int countOfDevicesAtATime;
+
     @Override
     public TbPrologisTransformTelemetryToNewFormatNodeConfiguration defaultConfiguration() {
         TbPrologisTransformTelemetryToNewFormatNodeConfiguration configuration

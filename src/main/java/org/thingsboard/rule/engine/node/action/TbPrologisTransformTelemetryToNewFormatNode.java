@@ -67,8 +67,8 @@ import java.util.stream.Collectors;
         type = ComponentType.ACTION,
         name = "prologis migration",
         configClazz = EmptyNodeConfiguration.class,
-        nodeDescription = "Migrate telemetry data from old json format to new separated",
-        nodeDetails = "Get all devices and their keys with old json format and migrate to separated key-value pairs",
+        nodeDescription = "Migrate telemetry data from old json object format to new fields separated",
+        nodeDetails = "Get all devices and their keys with old json format and migrate to separated key-value pairs telemetries",
         uiResources = {"static/rulenode/custom-nodes-config.js"},
         configDirective = "tbPrologisActionMigrationNodeConfig")
 public class TbPrologisTransformTelemetryToNewFormatNode implements TbNode {
@@ -91,7 +91,7 @@ public class TbPrologisTransformTelemetryToNewFormatNode implements TbNode {
         int pageNumber = 0;
         while (true) {
             PageData<Device> devicesPageData = getDevices(ctx, pageNumber, config.getCountOfDevicesAtATime());
-            TotalCountResFutures totalCountResFutures = transformTelemetryToNewFormat(ctx, msg,
+            TotalCountResFutures totalCountResFutures = transformTelemetryToNewFormat(ctx,
                     devicesPageData
                             .getData()
                             .stream()
@@ -107,9 +107,9 @@ public class TbPrologisTransformTelemetryToNewFormatNode implements TbNode {
         }
         DonAsynchron.withCallback(getFutureOfList(ctx, resFutures),
                 voids -> {
-                    Optional<Long> totalCount = totalCounts.stream().map(AtomicLong::get).reduce(Long::sum);
-                    log.info("Finished migration, total count of records: {}", totalCount.get());
-                    msg.getMetaData().putValue("totalCount", String.valueOf(totalCount.get()));
+                    Long totalCount = totalCounts.stream().map(AtomicLong::get).reduce(Long::sum).orElse(null);
+                    log.info("Finished migration, total count of records: {}", totalCount);
+                    msg.getMetaData().putValue("totalCount", String.valueOf(totalCount));
                     ctx.tellSuccess(msg);
                 },
                 throwable -> {
@@ -123,7 +123,7 @@ public class TbPrologisTransformTelemetryToNewFormatNode implements TbNode {
 
     }
 
-    private TotalCountResFutures transformTelemetryToNewFormat(TbContext ctx, TbMsg msg, List<DeviceId> deviceIds) {
+    private TotalCountResFutures transformTelemetryToNewFormat(TbContext ctx, List<DeviceId> deviceIds) {
         log.info("Found {} devices! Starting migration...", deviceIds.size());
         AtomicLong totalCount = new AtomicLong();
         List<ListenableFuture<List<Void>>> resFutures = new ArrayList<>();
@@ -174,7 +174,7 @@ public class TbPrologisTransformTelemetryToNewFormatNode implements TbNode {
                 return getFutureOfList(ctx, saveDeviceKeysFutures);
             }, ctx.getDbCallbackExecutor()));
         }
-        return new TotalCountResFutures(totalCount,resFutures);
+        return new TotalCountResFutures(totalCount, resFutures);
     }
 
     private ListenableFuture<Integer> saveTelemetry(TbContext ctx, DeviceId deviceId, List<TsKvEntry> entriesToSave) {

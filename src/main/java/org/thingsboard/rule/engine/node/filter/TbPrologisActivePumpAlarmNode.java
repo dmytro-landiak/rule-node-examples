@@ -55,7 +55,8 @@ import java.util.stream.Collectors;
         configClazz = TbPrologisActivePumpAlarmNodeConfiguration.class,
         relationTypes = {"True", "False"},
         nodeDescription = "Filter by sum of chosen telemetry and period",
-        nodeDetails = "Get sum of all doors chosen telemetry and period in this zone and filter by value(name = countOfMovement) in configuration.",
+        nodeDetails = "Get sum of values for all doors in the zone (by originator) for chosen telemetry in specified period and filter by value(name = countOfMovement)." +
+                "If the sum is greater than countOfMovement or equals to it -> the message goes through True chain. Otherwise, through False chain.",
         uiResources = {"static/rulenode/custom-nodes-config.js"},
         configDirective = "tbPrologisFilterActivePumpConfig")
 public class TbPrologisActivePumpAlarmNode implements TbNode {
