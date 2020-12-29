@@ -66,7 +66,7 @@ import java.util.stream.Collectors;
 @RuleNode(
         type = ComponentType.ACTION,
         name = "prologis migration",
-        configClazz = EmptyNodeConfiguration.class,
+        configClazz = TbPrologisTransformTelemetryToNewFormatNodeConfiguration.class,
         nodeDescription = "Migrate telemetry data from old json object format to new fields separated",
         nodeDetails = "Get all devices and their keys with old json format and migrate to separated key-value pairs telemetries",
         uiResources = {"static/rulenode/custom-nodes-config.js"},
