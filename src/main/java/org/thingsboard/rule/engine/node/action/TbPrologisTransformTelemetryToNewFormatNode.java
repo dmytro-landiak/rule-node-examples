@@ -69,24 +69,53 @@ import java.util.stream.Collectors;
         configClazz = EmptyNodeConfiguration.class,
         nodeDescription = "Migrate telemetry data from old json format to new separated",
         nodeDetails = "Get all devices and their keys with old json format and migrate to separated key-value pairs",
-        uiResources = {"static/rulenode/rulenode-core-config.js"},
-        configDirective = "tbNodeEmptyConfig")
+        uiResources = {"static/rulenode/custom-nodes-config.js"},
+        configDirective = "tbPrologisActionMigrationNodeConfig")
 public class TbPrologisTransformTelemetryToNewFormatNode implements TbNode {
 
     private static final String DEVICE_TYPE = "DATA_DEVICE";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private EmptyNodeConfiguration config;
+    private TbPrologisTransformTelemetryToNewFormatNodeConfiguration config;
 
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
-        this.config = TbNodeUtils.convert(configuration, EmptyNodeConfiguration.class);
+        this.config = TbNodeUtils.convert(configuration, TbPrologisTransformTelemetryToNewFormatNodeConfiguration.class);
     }
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
         ctx.getPeContext().ack(msg);
-        transformTelemetryToNewFormat(ctx, msg);
+        List<ListenableFuture<List<Void>>> resFutures = new ArrayList<>();
+        List<AtomicLong> totalCounts = new ArrayList<>();
+        int pageNumber = 0;
+        while (true) {
+            PageData<Device> devicesPageData = getDevices(ctx, pageNumber, config.getCountOfDevicesAtATime());
+            TotalCountResFutures totalCountResFutures = transformTelemetryToNewFormat(ctx, msg,
+                    devicesPageData
+                            .getData()
+                            .stream()
+                            .map(IdBased::getId)
+                            .collect(Collectors.toList()));
+            resFutures.addAll(totalCountResFutures.getResFutures());
+            totalCounts.add(totalCountResFutures.getTotalCount());
+            if (devicesPageData.hasNext()) {
+                pageNumber++;
+            } else {
+                break;
+            }
+        }
+        DonAsynchron.withCallback(getFutureOfList(ctx, resFutures),
+                voids -> {
+                    Optional<Long> totalCount = totalCounts.stream().map(AtomicLong::get).reduce(Long::sum);
+                    log.info("Finished migration, total count of records: {}", totalCount.get());
+                    msg.getMetaData().putValue("totalCount", String.valueOf(totalCount.get()));
+                    ctx.tellSuccess(msg);
+                },
+                throwable -> {
+                    log.error("Failure occurred during migration!", throwable);
+                    ctx.tellFailure(msg, throwable);
+                });
     }
 
     @Override
@@ -94,8 +123,7 @@ public class TbPrologisTransformTelemetryToNewFormatNode implements TbNode {
 
     }
 
-    private void transformTelemetryToNewFormat(TbContext ctx, TbMsg msg) {
-        List<DeviceId> deviceIds = getAllDevicesIds(ctx);
+    private TotalCountResFutures transformTelemetryToNewFormat(TbContext ctx, TbMsg msg, List<DeviceId> deviceIds) {
         log.info("Found {} devices! Starting migration...", deviceIds.size());
         AtomicLong totalCount = new AtomicLong();
         List<ListenableFuture<List<Void>>> resFutures = new ArrayList<>();
@@ -146,16 +174,7 @@ public class TbPrologisTransformTelemetryToNewFormatNode implements TbNode {
                 return getFutureOfList(ctx, saveDeviceKeysFutures);
             }, ctx.getDbCallbackExecutor()));
         }
-        DonAsynchron.withCallback(getFutureOfList(ctx, resFutures),
-                voids -> {
-                    log.info("Finished migration, total count of records: {}", totalCount.get());
-                    msg.getMetaData().putValue("totalCount", String.valueOf(totalCount.get()));
-                    ctx.tellSuccess(msg);
-                },
-                throwable -> {
-                    log.error("Failure occurred during migration!", throwable);
-                    ctx.tellFailure(msg, throwable);
-                });
+        return new TotalCountResFutures(totalCount,resFutures);
     }
 
     private ListenableFuture<Integer> saveTelemetry(TbContext ctx, DeviceId deviceId, List<TsKvEntry> entriesToSave) {
@@ -274,6 +293,18 @@ public class TbPrologisTransformTelemetryToNewFormatNode implements TbNode {
             pageNumber++;
         }
         return deviceIds;
+    }
+
+    private PageData<Device> getDevices(TbContext ctx, int pageNumber, int pageSize) {
+        return ctx.getDeviceService()
+                .findDevicesByTenantIdAndType(ctx.getTenantId(), DEVICE_TYPE, new PageLink(pageSize, pageNumber));
+    }
+
+    @Data
+    @AllArgsConstructor
+    private static class TotalCountResFutures {
+        private AtomicLong totalCount;
+        private List<ListenableFuture<List<Void>>> resFutures;
     }
 
     @Data
