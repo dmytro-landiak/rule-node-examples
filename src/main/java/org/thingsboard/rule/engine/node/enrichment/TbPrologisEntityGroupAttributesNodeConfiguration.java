@@ -24,13 +24,12 @@ import java.util.Map;
 @Data
 public class TbPrologisEntityGroupAttributesNodeConfiguration implements NodeConfiguration<TbPrologisEntityGroupAttributesNodeConfiguration> {
 
-    private String entityGroupId;
-    private Map<String, String> attrMapping;
+    private Map<String, String> attrMapping ;
 
     @Override
     public TbPrologisEntityGroupAttributesNodeConfiguration defaultConfiguration() {
         TbPrologisEntityGroupAttributesNodeConfiguration configuration = new TbPrologisEntityGroupAttributesNodeConfiguration();
-        Map<String, String> attrMapping = new HashMap<>();
+        Map<String, String>  attrMapping = new HashMap<>();
         attrMapping.putIfAbsent("temperature", "temp");
         configuration.setAttrMapping(attrMapping);
         return configuration;
