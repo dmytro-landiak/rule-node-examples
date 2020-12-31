@@ -15,22 +15,29 @@
  */
 package org.thingsboard.rule.engine.node.enrichment;
 
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.CollectionUtils;
 import org.thingsboard.rule.engine.api.RuleNode;
 import org.thingsboard.rule.engine.api.TbContext;
 import org.thingsboard.rule.engine.api.TbNode;
 import org.thingsboard.rule.engine.api.TbNodeConfiguration;
 import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
+import org.thingsboard.server.common.data.EntityType;
+import org.thingsboard.server.common.data.group.EntityGroup;
 import org.thingsboard.server.common.data.id.EntityGroupId;
 import org.thingsboard.server.common.data.id.EntityId;
+import org.thingsboard.server.common.data.id.IdBased;
 import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.msg.TbMsg;
 
-import java.util.List;
+import java.io.Serializable;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 import static org.thingsboard.common.util.DonAsynchron.withCallback;
 import static org.thingsboard.rule.engine.api.TbRelationTypes.FAILURE;
@@ -47,23 +54,60 @@ import static org.thingsboard.server.common.data.DataConstants.SERVER_SCOPE;
         configDirective = "tbPrologisEnrichmentAttributesNodeConfig")
 public class TbPrologisEntityGroupAttributesNode implements TbNode {
 
+    private static final String ALL_GROUP = "All";
+    private static final String DATA_DEVICE_GROUP = "DATA_DEVICE";
+
     private TbPrologisEntityGroupAttributesNodeConfiguration config;
-    private EntityGroupId entityGroupId;
 
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
         this.config = TbNodeUtils.convert(configuration, TbPrologisEntityGroupAttributesNodeConfiguration.class);
-        entityGroupId = EntityGroupId.fromString(config.getEntityGroupId());
     }
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
-        if (entityGroupId == null || entityGroupId.isNullUid()) {
-            ctx.tellNext(msg, FAILURE);
-            return;
-        }
-        withCallback(getAttributesAsync(ctx, entityGroupId),
-                attributeKvEntries -> putAttributesAndTell(ctx, msg, attributeKvEntries),
+        ListenableFuture<List<EntityGroup>> allDeviceEntityGroupsFuture = ctx.getPeContext()
+                .getEntityGroupService()
+                .findEntityGroupsByType(ctx.getTenantId(), ctx.getTenantId(), EntityType.DEVICE);
+        ListenableFuture<Set<EntityGroupId>> skipEntityGroupIdsFuture = Futures.transform(allDeviceEntityGroupsFuture, allDeviceEntityGroups -> {
+            if (allDeviceEntityGroups != null) {
+                return allDeviceEntityGroups
+                        .stream()
+                        .filter(entityGroup -> entityGroup.getName().equals(ALL_GROUP) || entityGroup.getName().equals(DATA_DEVICE_GROUP))
+                        .map(IdBased::getId)
+                        .collect(Collectors.toSet());
+            }
+            return new HashSet<>();
+
+        }, ctx.getDbCallbackExecutor());
+
+        ListenableFuture<List<EntityGroupId>> entityGroupIdsForEntityFuture = ctx.getPeContext().getEntityGroupService().findEntityGroupsForEntity(ctx.getTenantId(), msg.getOriginator());
+
+        ListenableFuture<List<AttributeKvEntry>> attributesFuture = Futures.transformAsync(entityGroupIdsForEntityFuture, entityGroupIdsForEntity -> {
+            if (CollectionUtils.isEmpty(entityGroupIdsForEntity)) {
+                log.warn("Device[{}] doesn't belong to any group", msg.getOriginator());
+                return Futures.immediateFuture(null);
+            }
+            return Futures.transformAsync(skipEntityGroupIdsFuture, skipEntityGroupIds -> {
+                List<EntityGroupId> entityGroupIds = entityGroupIdsForEntity
+                        .stream()
+                        .filter(entityGroupId -> !skipEntityGroupIds.contains(entityGroupId)).collect(Collectors.toList());
+                if (entityGroupIds.size() == 1) {
+                    return getAttributesAsync(ctx, entityGroupIds.get(0));
+                }
+                log.warn("Device[{}] belongs to {} groups", msg.getOriginator(), entityGroupIds.size());
+                return Futures.immediateFuture(null);
+            }, ctx.getDbCallbackExecutor());
+        }, ctx.getDbCallbackExecutor());
+
+
+        withCallback(attributesFuture,
+                attributeKvEntries -> {
+                    if (!CollectionUtils.isEmpty(attributeKvEntries)) {
+                        putAttributes(msg, attributeKvEntries);
+                    }
+                    ctx.tellSuccess(msg);
+                },
                 throwable -> ctx.tellFailure(msg, throwable));
     }
 
@@ -76,11 +120,10 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
         return ctx.getAttributesService().find(ctx.getTenantId(), entityId, SERVER_SCOPE, config.getAttrMapping().keySet());
     }
 
-    private void putAttributesAndTell(TbContext ctx, TbMsg msg, List<AttributeKvEntry> attributes) {
+    private void putAttributes(TbMsg msg, List<AttributeKvEntry> attributes) {
         attributes.forEach(attr -> {
             String attrName = config.getAttrMapping().get(attr.getKey());
             msg.getMetaData().putValue(attrName, attr.getValueAsString());
         });
-        ctx.tellSuccess(msg);
     }
 }
