@@ -34,13 +34,13 @@ import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.msg.TbMsg;
 
-import java.io.Serializable;
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 import static org.thingsboard.common.util.DonAsynchron.withCallback;
-import static org.thingsboard.rule.engine.api.TbRelationTypes.FAILURE;
 import static org.thingsboard.server.common.data.DataConstants.SERVER_SCOPE;
 
 @Slf4j
@@ -49,7 +49,8 @@ import static org.thingsboard.server.common.data.DataConstants.SERVER_SCOPE;
         name = "prologis attributes",
         configClazz = TbPrologisEntityGroupAttributesNodeConfiguration.class,
         nodeDescription = "Add Entity Group Attributes into Message Metadata",
-        nodeDetails = "Server scope attributes are added into Message metadata. To access those attributes in other nodes this template can be used metadata.temperature",
+        nodeDetails = "Found related groups for originator, skipped All and DATA_DEVICE groups. If more than one group left - no attributes are fetched." +
+                "Server scope attributes are added into Message metadata. To access those attributes in other nodes this template can be used metadata.temperature",
         uiResources = {"static/rulenode/custom-nodes-config.js"},
         configDirective = "tbPrologisEnrichmentAttributesNodeConfig")
 public class TbPrologisEntityGroupAttributesNode implements TbNode {
@@ -78,7 +79,6 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
                         .collect(Collectors.toSet());
             }
             return new HashSet<>();
-
         }, ctx.getDbCallbackExecutor());
 
         ListenableFuture<List<EntityGroupId>> entityGroupIdsForEntityFuture = ctx.getPeContext().getEntityGroupService().findEntityGroupsForEntity(ctx.getTenantId(), msg.getOriginator());
@@ -99,7 +99,6 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
                 return Futures.immediateFuture(null);
             }, ctx.getDbCallbackExecutor());
         }, ctx.getDbCallbackExecutor());
-
 
         withCallback(attributesFuture,
                 attributeKvEntries -> {
