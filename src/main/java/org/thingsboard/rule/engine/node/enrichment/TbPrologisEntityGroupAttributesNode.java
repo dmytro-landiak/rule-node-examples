@@ -34,6 +34,7 @@ import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.msg.TbMsg;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -94,9 +95,34 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
                         .filter(entityGroupId -> !skipEntityGroupIds.contains(entityGroupId)).collect(Collectors.toList());
                 if (entityGroupIds.size() == 1) {
                     return getAttributesAsync(ctx, entityGroupIds.get(0));
+                } else {
+                    List<ListenableFuture<List<AttributeKvEntry>>> results = new ArrayList<>();
+                    for (EntityGroupId entityGroupId : entityGroupIds) {
+                        results.add(getAttributesAsync(ctx, entityGroupId));
+                    }
+                    return Futures.transform(Futures.allAsList(results), lists -> {
+                        List<AttributeKvEntry> foundThresholds = null;
+
+                        if (!CollectionUtils.isEmpty(lists)) {
+                            for (List<AttributeKvEntry> attributes : lists) {
+                                if (!CollectionUtils.isEmpty(attributes)) {
+                                    if (attributes.size() == 2) {
+                                        foundThresholds = attributes;
+                                        break;
+                                    } else {
+                                        foundThresholds = attributes;
+                                    }
+                                }
+                            }
+                        }
+                        if (foundThresholds == null) {
+                            log.warn("[{}] Did not find attributes for any related group!", msg.getOriginator());
+                            return null;
+                        } else {
+                            return foundThresholds;
+                        }
+                    }, ctx.getDbCallbackExecutor());
                 }
-                log.warn("Device[{}] belongs to {} groups", msg.getOriginator(), entityGroupIds.size());
-                return Futures.immediateFuture(null);
             }, ctx.getDbCallbackExecutor());
         }, ctx.getDbCallbackExecutor());
 
