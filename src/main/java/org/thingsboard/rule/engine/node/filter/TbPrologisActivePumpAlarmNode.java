@@ -91,7 +91,7 @@ public class TbPrologisActivePumpAlarmNode implements TbNode {
         DonAsynchron.withCallback(sumOfTimeseriesFuture, sumOfTimeseries -> {
             if (sumOfTimeseries != null) {
                 msg.getMetaData().putValue("movementCount", String.valueOf(sumOfTimeseries));
-                if (sumOfTimeseries >= config.getCountOfMovement()) {
+                if (sumOfTimeseries > config.getCountOfMovement()) {
                     ctx.tellNext(msg, "True");
                 } else {
                     ctx.tellNext(msg, "False");
