@@ -39,6 +39,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import static org.thingsboard.common.util.DonAsynchron.withCallback;
@@ -103,24 +105,28 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
                     return Futures.transform(Futures.allAsList(results), lists -> {
                         List<AttributeKvEntry> foundThresholds = null;
 
+                        AtomicInteger counter = new AtomicInteger(0);
+                        AtomicBoolean foundBothThresholds = new AtomicBoolean(false);
+
                         if (!CollectionUtils.isEmpty(lists)) {
                             for (List<AttributeKvEntry> attributes : lists) {
                                 if (!CollectionUtils.isEmpty(attributes)) {
+                                    counter.incrementAndGet();
                                     if (attributes.size() == 2) {
                                         foundThresholds = attributes;
-                                        break;
+                                        foundBothThresholds.set(true);
                                     } else {
-                                        foundThresholds = attributes;
+                                        if (!foundBothThresholds.get()) {
+                                            foundThresholds = attributes;
+                                        }
                                     }
                                 }
                             }
                         }
-                        if (foundThresholds == null) {
-                            log.warn("[{}] Did not find attributes for any related group!", msg.getOriginator());
-                            return null;
-                        } else {
-                            return foundThresholds;
+                        if (counter.get() > 1) {
+                            msg.getMetaData().putValue("deviceGroupIds", entityGroupIds.toString());
                         }
+                        return foundThresholds;
                     }, ctx.getDbCallbackExecutor());
                 }
             }, ctx.getDbCallbackExecutor());
