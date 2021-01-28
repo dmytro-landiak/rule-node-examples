@@ -1,3 +1,18 @@
+/**
+ * Copyright © 2018 The Thingsboard Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.thingsboard.rule.engine.node.action;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -8,7 +23,12 @@ import com.google.common.util.concurrent.ListenableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 import org.thingsboard.common.util.DonAsynchron;
-import org.thingsboard.rule.engine.api.*;
+import org.thingsboard.rule.engine.api.EmptyNodeConfiguration;
+import org.thingsboard.rule.engine.api.RuleNode;
+import org.thingsboard.rule.engine.api.TbContext;
+import org.thingsboard.rule.engine.api.TbNode;
+import org.thingsboard.rule.engine.api.TbNodeConfiguration;
+import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.alarm.Alarm;
 import org.thingsboard.server.common.data.alarm.AlarmInfo;
@@ -22,24 +42,30 @@ import org.thingsboard.server.common.data.page.TimePageLink;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.msg.TbMsg;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RuleNode(
         type = ComponentType.ACTION,
-        name = "prologis send notification",
+        name = "prologis resend notification",
         configClazz = EmptyNodeConfiguration.class,
         nodeDescription = "",
         nodeDetails = "",
-        uiResources = {"static/rulenode/custom-nodes-config.js"},
+        uiResources = {"static/rulenode/rulenode-core-config.js"},
         configDirective = "tbNodeEmptyConfig")
-public class TbPrologisSendNotificationNode implements TbNode {
+public class TbPrologisReSendNotificationNode implements TbNode {
 
     private static final String PROJECT = "PROJECT";
     private static final String SERVER_SCOPE = "SERVER_SCOPE";
     private static final String RESEND_INTERVAL = "resendNotificationInterval";
     private static final String ENABLE_RESEND = "enableResendNotification";
+    private static final String LAST_RESEND_NOTIFICATION_TS = "lastResendNotificationTs";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private EmptyNodeConfiguration config;
@@ -76,32 +102,37 @@ public class TbPrologisSendNotificationNode implements TbNode {
                             List<Asset> projects = ctx.getAssetService()
                                     .findAssetsByTenantIdAndType(ctx.getTenantId(), PROJECT, new PageLink(1000))
                                     .getData();
+                            List<ListenableFuture<List<Alarm>>> updatedAlarmsList = new ArrayList<>();
                             for (Asset project : projects) {
-                                return updateAlarms(ctx, project, resendInterval.get());
+                                updatedAlarmsList.add(updateAlarms(ctx, project, resendInterval.get()));
                             }
+                            return Futures.transform(Futures.allAsList(updatedAlarmsList), updatedAlarmsForProjects -> {
+                                if (!CollectionUtils.isEmpty(updatedAlarmsForProjects)) {
+                                    return updatedAlarmsForProjects.stream().flatMap(Collection::stream).collect(Collectors.toList());
+                                }
+                                return null;
+                            }, ctx.getDbCallbackExecutor());
                         }
                     } else {
                         log.warn("Didn't find attrs : {}", Arrays.asList(RESEND_INTERVAL, ENABLE_RESEND));
                     }
-                    return Futures.immediateFuture(new ArrayList<>());
-                }
-                , ctx.getDbCallbackExecutor());
+                    return Futures.immediateFuture(null);
+                }, ctx.getDbCallbackExecutor());
     }
-
 
     private ListenableFuture<List<Alarm>> updateAlarms(TbContext ctx, Asset project, long resendInterval) {
         return Futures.transform(ctx.getAlarmService()
                 .findAlarms(ctx.getTenantId(), getAlarmQuery(project.getId())), alarmInfos -> {
             List<Alarm> alarms = new ArrayList<>();
             if (alarmInfos == null) {
-                log.info("Didn't find alarms for Project[name={}]", project.getName());
+                log.info("Didn't find alarms for Project [name = {}]", project.getName());
             } else {
                 for (AlarmInfo alarmInfo : alarmInfos.getData()) {
-                    long lastResendNotificationTs = alarmInfo.getDetails().has("lastResendNotificationTs") ?
-                            alarmInfo.getDetails().get("lastResendNotificationTs").asLong() : alarmInfo.getCreatedTime();
+                    long lastResendNotificationTs = alarmInfo.getDetails().has(LAST_RESEND_NOTIFICATION_TS) ?
+                            alarmInfo.getDetails().get(LAST_RESEND_NOTIFICATION_TS).asLong() : alarmInfo.getCreatedTime();
 
                     if ((System.currentTimeMillis() - lastResendNotificationTs) / (resendInterval * 60000) > 0) {
-                        alarmInfo.setDetails(((ObjectNode) alarmInfo.getDetails()).put("lastResendNotificationTs", System.currentTimeMillis()));
+                        alarmInfo.setDetails(((ObjectNode) alarmInfo.getDetails()).put(LAST_RESEND_NOTIFICATION_TS, System.currentTimeMillis()));
                         alarms.add(ctx.getAlarmService().createOrUpdateAlarm(alarmInfo));
                     }
                 }
