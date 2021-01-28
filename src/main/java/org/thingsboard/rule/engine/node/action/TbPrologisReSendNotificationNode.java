@@ -82,9 +82,9 @@ public class TbPrologisReSendNotificationNode implements TbNode {
             if (!CollectionUtils.isEmpty(alarms)) {
                 for (Alarm alarm : alarms) {
                     try {
-                        ctx.tellSuccess(TbMsg.newMsg(msg.getType(), msg.getOriginator(), msg.getMetaData(), MAPPER.writeValueAsString(alarm)));
+                        ctx.tellSuccess(TbMsg.newMsg(msg.getType(), alarm.getOriginator(), msg.getMetaData(), MAPPER.writeValueAsString(alarm)));
                     } catch (JsonProcessingException e) {
-                        ctx.tellFailure(TbMsg.newMsg(msg.getType(), msg.getOriginator(), msg.getMetaData(), msg.getData()), e);
+                        ctx.tellFailure(TbMsg.newMsg(msg.getType(), alarm.getOriginator(), msg.getMetaData(), msg.getData()), e);
                     }
                 }
             }
