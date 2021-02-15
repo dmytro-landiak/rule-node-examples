@@ -37,10 +37,10 @@ import org.thingsboard.server.common.data.group.EntityGroup;
 import org.thingsboard.server.common.data.id.AssetId;
 import org.thingsboard.server.common.data.id.DeviceId;
 import org.thingsboard.server.common.data.id.EntityId;
-import org.thingsboard.server.common.data.kv.AttributeKvEntry;
-import org.thingsboard.server.common.data.kv.BaseAttributeKvEntry;
+import org.thingsboard.server.common.data.kv.BasicTsKvEntry;
 import org.thingsboard.server.common.data.kv.DoubleDataEntry;
 import org.thingsboard.server.common.data.kv.KvEntry;
+import org.thingsboard.server.common.data.kv.TsKvEntry;
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.data.relation.EntitySearchDirection;
@@ -99,7 +99,7 @@ public class TbPrologisCalculateDewPointNode implements TbNode {
         ListenableFuture<Optional<EntityGroup>> dockProjectsGroupFuture = ctx.getPeContext()
                 .getEntityGroupService()
                 .findEntityGroupByTypeAndName(ctx.getTenantId(), ctx.getTenantId(), EntityType.ASSET, DOCK_PROJECTS);
-        ListenableFuture<List<Void>> resultsFuture = Futures.transformAsync(dockProjectsGroupFuture, dockProjectsGroup -> {
+        ListenableFuture<Integer> resultsFuture = Futures.transformAsync(dockProjectsGroupFuture, dockProjectsGroup -> {
             if (dockProjectsGroup != null && dockProjectsGroup.isPresent()) {
                 List<Asset> projects = ctx.getAssetService()
                         .findAssetsByEntityGroupId(dockProjectsGroup.get().getId(), new PageLink(1000))
@@ -114,7 +114,7 @@ public class TbPrologisCalculateDewPointNode implements TbNode {
                                 .filter(dockInfos -> !CollectionUtils.isEmpty(dockInfos))
                                 .flatMap(Collection::stream)
                                 .collect(Collectors.toList());
-                        return saveAttributes(ctx, filteredDockInfos, msg.getTs());
+                        return saveTimeseries(ctx, filteredDockInfos, msg.getTs());
                     }
                     return Futures.immediateFuture(null);
                 }, ctx.getDbCallbackExecutor());
@@ -125,22 +125,23 @@ public class TbPrologisCalculateDewPointNode implements TbNode {
         DonAsynchron.withCallback(resultsFuture, r -> ctx.tellSuccess(msg), throwable -> ctx.tellFailure(msg, throwable));
     }
 
-    private ListenableFuture<List<Void>> saveAttributes(TbContext ctx, List<DockInfo> dockInfos, long ts) {
+    private ListenableFuture<Integer> saveTimeseries(TbContext ctx, List<DockInfo> dockInfos, long ts) {
         ts = ts != 0 ? ts : System.currentTimeMillis();
+        List<ListenableFuture<Integer>> futures = new ArrayList<>();
         for (DockInfo dockInfo : dockInfos) {
-            List<AttributeKvEntry> attributeKvEntries = new ArrayList<>();
+            List<TsKvEntry> tsKvEntries = new ArrayList<>();
             if (dockInfo.getDewPoint() != null) {
-                attributeKvEntries.add(new BaseAttributeKvEntry(new DoubleDataEntry(DEW_POINT_KEY, dockInfo.getDewPoint()), ts));
+                tsKvEntries.add(new BasicTsKvEntry(ts, new DoubleDataEntry(DEW_POINT_KEY, dockInfo.getDewPoint())));
             }
             if (dockInfo.getLevelerTemperature() != null) {
-                attributeKvEntries.add(new BaseAttributeKvEntry(new DoubleDataEntry(LEVELER_TEMPERATURE_KEY, dockInfo.getLevelerTemperature()), ts));
+                tsKvEntries.add(new BasicTsKvEntry(ts, new DoubleDataEntry(LEVELER_TEMPERATURE_KEY, dockInfo.getLevelerTemperature())));
             }
-            if (!CollectionUtils.isEmpty(attributeKvEntries)) {
-                return ctx.getAttributesService()
-                        .save(ctx.getTenantId(), dockInfo.getDockId(), DataConstants.SERVER_SCOPE, attributeKvEntries);
+            if (!CollectionUtils.isEmpty(tsKvEntries)) {
+                futures.add(ctx.getTimeseriesService()
+                        .save(ctx.getTenantId(), dockInfo.getDockId(), tsKvEntries, 0L));
             }
         }
-        return Futures.immediateFuture(null);
+        return Futures.transform(Futures.allAsList(futures), i -> null, ctx.getDbCallbackExecutor());
     }
 
     private ListenableFuture<List<DockInfo>> getDockInfos(TbContext ctx, Asset project) {
