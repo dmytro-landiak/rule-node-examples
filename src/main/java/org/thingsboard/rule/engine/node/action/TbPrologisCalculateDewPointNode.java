@@ -1,3 +1,18 @@
+/**
+ * Copyright © 2018 The Thingsboard Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.thingsboard.rule.engine.node.action;
 
 import com.google.common.util.concurrent.Futures;
@@ -7,7 +22,12 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 import org.thingsboard.common.util.DonAsynchron;
-import org.thingsboard.rule.engine.api.*;
+import org.thingsboard.rule.engine.api.EmptyNodeConfiguration;
+import org.thingsboard.rule.engine.api.RuleNode;
+import org.thingsboard.rule.engine.api.TbContext;
+import org.thingsboard.rule.engine.api.TbNode;
+import org.thingsboard.rule.engine.api.TbNodeConfiguration;
+import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.DataConstants;
 import org.thingsboard.server.common.data.EntityType;
@@ -17,13 +37,24 @@ import org.thingsboard.server.common.data.group.EntityGroup;
 import org.thingsboard.server.common.data.id.AssetId;
 import org.thingsboard.server.common.data.id.DeviceId;
 import org.thingsboard.server.common.data.id.EntityId;
-import org.thingsboard.server.common.data.kv.*;
+import org.thingsboard.server.common.data.kv.AttributeKvEntry;
+import org.thingsboard.server.common.data.kv.BaseAttributeKvEntry;
+import org.thingsboard.server.common.data.kv.DoubleDataEntry;
+import org.thingsboard.server.common.data.kv.KvEntry;
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.plugin.ComponentType;
-import org.thingsboard.server.common.data.relation.*;
+import org.thingsboard.server.common.data.relation.EntitySearchDirection;
+import org.thingsboard.server.common.data.relation.RelationTypeGroup;
+import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
@@ -114,7 +145,7 @@ public class TbPrologisCalculateDewPointNode implements TbNode {
 
     private ListenableFuture<List<DockInfo>> getDockInfos(TbContext ctx, Asset project) {
         return Futures.transformAsync(ctx.getAssetService()
-                .findAssetsByQuery(ctx.getTenantId(), getAssetSearchQuery(project.getId(), IS_IN_SPACE, 10, Collections.singletonList(ZONE))),
+                        .findAssetsByQuery(ctx.getTenantId(), getAssetSearchQuery(project.getId(), IS_IN_SPACE, 10, Collections.singletonList(ZONE))),
                 zones -> {
                     if (!CollectionUtils.isEmpty(zones)) {
                         List<Asset> docks = zones.stream()
@@ -128,8 +159,8 @@ public class TbPrologisCalculateDewPointNode implements TbNode {
                             ListenableFuture<Double> levelerTemperatureFuture = getLevelerTemperature(ctx, dock);
                             dockInfoFutures.add(Futures.transformAsync(dewPointFuture,
                                     dewPoint -> Futures.transform(levelerTemperatureFuture,
-                                        levelerTemperature -> new DockInfo(dock.getId(), dewPoint, levelerTemperature),
-                                        ctx.getDbCallbackExecutor()),
+                                            levelerTemperature -> new DockInfo(dock.getId(), dewPoint, levelerTemperature),
+                                            ctx.getDbCallbackExecutor()),
                                     ctx.getDbCallbackExecutor()));
                         }
                         return Futures.allAsList(dockInfoFutures);
@@ -151,8 +182,8 @@ public class TbPrologisCalculateDewPointNode implements TbNode {
                     return Futures.transformAsync(getEnvironmentalSensorId(ctx, leveler.get(), OBSERVES_EQUIPMENT), environmentalSensors -> {
                         if (!CollectionUtils.isEmpty(environmentalSensors)) {
                             return Futures.transform(ctx.getTimeseriesService()
-                                            .findLatest(ctx.getTenantId(),
-                                                    environmentalSensors.get(0), Collections.singletonList(TEMPERATURE)), kvEntries -> {
+                                    .findLatest(ctx.getTenantId(),
+                                            environmentalSensors.get(0), Collections.singletonList(TEMPERATURE)), kvEntries -> {
                                 if (!CollectionUtils.isEmpty(kvEntries) && kvEntries.stream().allMatch(tsKvEntry -> tsKvEntry.getValue() != null)) {
                                     return Double.parseDouble(kvEntries.get(0).getValueAsString());
                                 }
@@ -198,10 +229,9 @@ public class TbPrologisCalculateDewPointNode implements TbNode {
 
     private ListenableFuture<List<DeviceId>> getEnvironmentalSensorId(TbContext ctx, Asset asset, String relationType) {
         List<DeviceId> deviceIds = ctx.getRelationService()
-                .findByFrom(ctx.getTenantId(), asset.getId(), RelationTypeGroup.COMMON)
+                .findByFromAndType(ctx.getTenantId(), asset.getId(), relationType, RelationTypeGroup.COMMON)
                 .stream()
-                .filter(relation -> relation.getType().equals(relationType)
-                        && relation.getTo().getEntityType().equals(EntityType.DEVICE))
+                .filter(relation -> relation.getTo().getEntityType().equals(EntityType.DEVICE))
                 .map(relation -> new DeviceId(relation.getTo().getId()))
                 .collect(Collectors.toList());
         List<ListenableFuture<DeviceId>> environmentDeviceIdFutures = new ArrayList<>();
@@ -223,15 +253,15 @@ public class TbPrologisCalculateDewPointNode implements TbNode {
                 return environmentDeviceIds.stream().filter(Objects::nonNull).collect(Collectors.toList());
             }
             return null;
-        } , ctx.getDbCallbackExecutor());
+        }, ctx.getDbCallbackExecutor());
     }
 
     private ListenableFuture<Double> calculateDewPoint(TbContext ctx, DeviceId environmentalSensorId) {
         return Futures.transform(ctx.getTimeseriesService()
-                        .findLatest(ctx.getTenantId(),
-                                environmentalSensorId, Arrays.asList(TEMPERATURE, HUMIDITY)), tsKvEntries -> {
+                .findLatest(ctx.getTenantId(),
+                        environmentalSensorId, Arrays.asList(TEMPERATURE, HUMIDITY)), tsKvEntries -> {
             if (!CollectionUtils.isEmpty(tsKvEntries)
-                    && tsKvEntries.size() >= 2
+                    && tsKvEntries.size() == 2
                     && tsKvEntries.stream().allMatch(tsKvEntry -> tsKvEntry.getValue() != null)) {
                 Optional<String> temperatureStr = tsKvEntries.stream()
                         .filter(tsKvEntry -> tsKvEntry.getKey().equals(TEMPERATURE))
