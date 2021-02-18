@@ -38,10 +38,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.thingsboard.common.util.DonAsynchron.withCallback;
 import static org.thingsboard.server.common.data.DataConstants.SERVER_SCOPE;
@@ -60,6 +60,7 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
 
     private static final String ALL_GROUP = "All";
     private static final String DATA_DEVICE_GROUP = "DATA_DEVICE";
+    private static final String PRIORITY_ATTR = "priority";
 
     private TbPrologisEntityGroupAttributesNodeConfiguration config;
 
@@ -103,30 +104,42 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
                         results.add(getAttributesAsync(ctx, entityGroupId));
                     }
                     return Futures.transform(Futures.allAsList(results), lists -> {
-                        List<AttributeKvEntry> foundThresholds = null;
-
-                        AtomicInteger counter = new AtomicInteger(0);
-                        AtomicBoolean foundBothThresholds = new AtomicBoolean(false);
-
                         if (!CollectionUtils.isEmpty(lists)) {
-                            for (List<AttributeKvEntry> attributes : lists) {
-                                if (!CollectionUtils.isEmpty(attributes)) {
-                                    counter.incrementAndGet();
-                                    if (attributes.size() == 2) {
-                                        foundThresholds = attributes;
-                                        foundBothThresholds.set(true);
-                                    } else {
-                                        if (!foundBothThresholds.get()) {
-                                            foundThresholds = attributes;
-                                        }
-                                    }
-                                }
+                            Optional<List<AttributeKvEntry>> attrsOpt = lists.stream()
+                                    .filter(list -> list
+                                            .stream()
+                                            .anyMatch(attr -> attr.getKey().equals(PRIORITY_ATTR)
+                                                    && attr.getLongValue().isPresent()))
+                                    .min((attrList1, attrList2) -> {
+                                        Long val1 = attrList1
+                                                .stream()
+                                                .filter(attr -> attr.getKey().equals(PRIORITY_ATTR))
+                                                .findFirst()
+                                                .get()
+                                                .getLongValue()
+                                                .get();
+                                        Long val2 = attrList2
+                                                .stream()
+                                                .filter(attr -> attr.getKey().equals(PRIORITY_ATTR))
+                                                .findFirst()
+                                                .get()
+                                                .getLongValue()
+                                                .get();
+                                        return Long.compare(val1, val2);
+                                    });
+                            long count = lists.stream()
+                                    .filter(list -> !CollectionUtils.isEmpty(list) &&
+                                            list.stream().anyMatch(attr -> config.getAttrMapping().containsKey(attr.getKey())))
+                                    .count();
+                            if (count > 1) {
+                                msg.getMetaData().putValue("deviceGroupIds", entityGroupIds.toString());
+                            }
+                            if (attrsOpt.isPresent()) {
+                                return attrsOpt.get();
                             }
                         }
-                        if (counter.get() > 1) {
-                            msg.getMetaData().putValue("deviceGroupIds", entityGroupIds.toString());
-                        }
-                        return foundThresholds;
+                        log.warn("{}[id = {}] : Didn't find groups with [priority] attribute", msg.getOriginator().getEntityType(), msg.getOriginator());
+                        return null;
                     }, ctx.getDbCallbackExecutor());
                 }
             }, ctx.getDbCallbackExecutor());
@@ -148,13 +161,18 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
     }
 
     private ListenableFuture<List<AttributeKvEntry>> getAttributesAsync(TbContext ctx, EntityId entityId) {
-        return ctx.getAttributesService().find(ctx.getTenantId(), entityId, SERVER_SCOPE, config.getAttrMapping().keySet());
+        return ctx.getAttributesService().find(ctx.getTenantId(), entityId, SERVER_SCOPE,
+                Stream.concat(config.getAttrMapping().keySet().stream(),
+                        Stream.of(PRIORITY_ATTR)).collect(Collectors.toList())
+        );
     }
 
     private void putAttributes(TbMsg msg, List<AttributeKvEntry> attributes) {
-        attributes.forEach(attr -> {
-            String attrName = config.getAttrMapping().get(attr.getKey());
-            msg.getMetaData().putValue(attrName, attr.getValueAsString());
-        });
+        for (AttributeKvEntry attr : attributes) {
+            if (!attr.getKey().equals(PRIORITY_ATTR)) {
+                String attrName = config.getAttrMapping().get(attr.getKey());
+                msg.getMetaData().putValue(attrName, attr.getValueAsString());
+            }
+        }
     }
 }
