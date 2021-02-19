@@ -17,6 +17,7 @@ package org.thingsboard.rule.engine.node.enrichment;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 import org.thingsboard.rule.engine.api.RuleNode;
@@ -34,11 +35,7 @@ import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.msg.TbMsg;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -99,46 +96,49 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
                 if (entityGroupIds.size() == 1) {
                     return getAttributesAsync(ctx, entityGroupIds.get(0));
                 } else {
-                    List<ListenableFuture<List<AttributeKvEntry>>> results = new ArrayList<>();
+                    List<ListenableFuture<GroupAttrs>> results = new ArrayList<>();
                     for (EntityGroupId entityGroupId : entityGroupIds) {
-                        results.add(getAttributesAsync(ctx, entityGroupId));
-                    }
-                    return Futures.transform(Futures.allAsList(results), lists -> {
-                        if (!CollectionUtils.isEmpty(lists)) {
-                            Optional<List<AttributeKvEntry>> attrsOpt = lists.stream()
-                                    .filter(list -> list
-                                            .stream()
-                                            .anyMatch(attr -> attr.getKey().equals(PRIORITY_ATTR)
-                                                    && attr.getLongValue().isPresent()))
-                                    .min((attrList1, attrList2) -> {
-                                        Long val1 = attrList1
-                                                .stream()
-                                                .filter(attr -> attr.getKey().equals(PRIORITY_ATTR))
-                                                .findFirst()
-                                                .get()
-                                                .getLongValue()
-                                                .get();
-                                        Long val2 = attrList2
-                                                .stream()
-                                                .filter(attr -> attr.getKey().equals(PRIORITY_ATTR))
-                                                .findFirst()
-                                                .get()
-                                                .getLongValue()
-                                                .get();
-                                        return Long.compare(val1, val2);
-                                    });
-                            long count = lists.stream()
-                                    .filter(list -> !CollectionUtils.isEmpty(list) &&
-                                            list.stream().anyMatch(attr -> config.getAttrMapping().containsKey(attr.getKey())))
-                                    .count();
-                            if (count > 1) {
-                                msg.getMetaData().putValue("deviceGroupIds", entityGroupIds.toString());
+                        results.add(Futures.transform(getAttributesAsync(ctx, entityGroupId), attrs -> {
+                            if (!CollectionUtils.isEmpty(attrs)) {
+                                return new GroupAttrs(entityGroupId, attrs);
                             }
-                            if (attrsOpt.isPresent()) {
-                                return attrsOpt.get();
+                            return null;
+                        }, ctx.getDbCallbackExecutor()));
+                    }
+                    return Futures.transform(Futures.allAsList(results), groupAttrs -> {
+                        if (!CollectionUtils.isEmpty(groupAttrs)) {
+                            Map<Long, List<GroupAttrs>> attributesListsByPriority = new HashMap<>();
+                            for (GroupAttrs attrs : groupAttrs) {
+                                if (attrs != null) {
+                                    Optional<Long> priorityOpt = attrs.getAttrs()
+                                            .stream()
+                                            .filter(attr -> attr.getKey().equals(PRIORITY_ATTR)
+                                                    && attr.getLongValue().isPresent())
+                                            .map(attr -> attr.getLongValue().get())
+                                            .findFirst();
+                                    priorityOpt.ifPresent(aLong -> attributesListsByPriority.computeIfAbsent(aLong, k -> new ArrayList<>()).add(attrs));
+                                }
+                            }
+                            Optional<Long> minPriorityOpt = attributesListsByPriority
+                                    .keySet()
+                                    .stream()
+                                    .min(Long::compareTo);
+                            if (minPriorityOpt.isPresent()) {
+                                List<GroupAttrs> groupAttrsList = attributesListsByPriority.get(minPriorityOpt.get());
+                                if (!CollectionUtils.isEmpty(groupAttrsList)) {
+                                    if (groupAttrsList.size() > 1) {
+                                        msg.getMetaData().putValue("deviceGroupIds", groupAttrsList
+                                                .stream()
+                                                .map(GroupAttrs::getGroupId)
+                                                .collect(Collectors.toList())
+                                                .toString());
+                                        return null;
+                                    }
+                                    return groupAttrsList.get(0).getAttrs();
+                                }
                             }
                         }
-                        log.warn("{}[id = {}] : Didn't find groups with [priority] attribute", msg.getOriginator().getEntityType(), msg.getOriginator());
+                        log.warn("{}[id = {}] : Didn't find groups with attributes", msg.getOriginator().getEntityType(), msg.getOriginator());
                         return null;
                     }, ctx.getDbCallbackExecutor());
                 }
@@ -174,5 +174,11 @@ public class TbPrologisEntityGroupAttributesNode implements TbNode {
                 msg.getMetaData().putValue(attrName, attr.getValueAsString());
             }
         }
+    }
+
+    @Data
+    private static class GroupAttrs {
+        private final EntityGroupId groupId;
+        private final List<AttributeKvEntry> attrs;
     }
 }
