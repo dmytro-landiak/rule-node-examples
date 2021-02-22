@@ -32,6 +32,8 @@ import org.thingsboard.server.common.msg.TbMsg;
 
 import java.util.concurrent.ExecutionException;
 
+import static org.thingsboard.rule.engine.api.TbRelationTypes.SUCCESS;
+
 @Slf4j
 @RuleNode(
         type = ComponentType.TRANSFORMATION,
@@ -70,7 +72,7 @@ public class TbPrologisLatestAlarmNode implements TbNode {
                 ctx.tellNext(msg, "Not Found");
             } else {
                 ctx.ack(msg);
-                ctx.tellSuccess(TbMsg.newMsg(msg.getType(), msg.getOriginator(), msg.getMetaData(), gson.toJson(alarm)));
+                ctx.enqueueForTellNext(TbMsg.newMsg(msg.getType(), msg.getOriginator(), msg.getMetaData(), gson.toJson(alarm)), SUCCESS);
             }
         }, throwable -> ctx.tellFailure(msg, throwable));
     }

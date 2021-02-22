@@ -51,6 +51,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import static org.thingsboard.rule.engine.api.TbRelationTypes.SUCCESS;
+
 @Slf4j
 @RuleNode(
         type = ComponentType.ANALYTICS,
@@ -158,7 +160,9 @@ public class TbPrologisAlarmNode implements TbNode {
         DonAsynchron.withCallback(resFuture, tbMsgs -> {
             ctx.ack(msg);
             if (tbMsgs != null) {
-                tbMsgs.forEach(ctx::tellSuccess);
+                for (TbMsg tbMsg : tbMsgs) {
+                    ctx.enqueueForTellNext(tbMsg, SUCCESS);
+                }
             }
         }, throwable -> ctx.tellFailure(msg, throwable));
     }

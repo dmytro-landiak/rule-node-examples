@@ -52,6 +52,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static org.thingsboard.rule.engine.api.TbRelationTypes.SUCCESS;
+
 @Slf4j
 @RuleNode(
         type = ComponentType.ENRICHMENT,
@@ -120,7 +122,7 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
             ctx.ack(msg);
             if (!CollectionUtils.isEmpty(messages)) {
                 for (TbMsg tbMsg : messages) {
-                    ctx.tellSuccess(tbMsg);
+                    ctx.enqueueForTellNext(tbMsg, SUCCESS);
                 }
             }
         }, throwable -> ctx.tellFailure(msg, throwable));
@@ -207,11 +209,11 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
     private EntityRelationsQuery getEntityRelationsQuery(EntityId originatorId) {
         RelationsSearchParameters relationsSearchParameters = new RelationsSearchParameters(originatorId,
                 EntitySearchDirection.TO, 4, true);
-        EntityTypeFilter entityTypeFilter = new EntityTypeFilter("FromCustomerToTech", Collections.singletonList(EntityType.CUSTOMER));
 
         EntityRelationsQuery entityRelationsQuery = new EntityRelationsQuery();
         entityRelationsQuery.setParameters(relationsSearchParameters);
-        entityRelationsQuery.setFilters(Collections.singletonList(entityTypeFilter));
+        entityRelationsQuery.setFilters(Arrays.asList(new EntityTypeFilter("FromCustomerToTech", Collections.singletonList(EntityType.CUSTOMER)),
+                new EntityTypeFilter("FromCustomerToManager", Collections.singletonList(EntityType.CUSTOMER))));
         return entityRelationsQuery;
     }
 
