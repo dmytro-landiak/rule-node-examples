@@ -50,6 +50,8 @@ import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
+import static org.thingsboard.rule.engine.api.TbRelationTypes.SUCCESS;
+
 @Slf4j
 @RuleNode(
         type = ComponentType.ACTION,
@@ -82,7 +84,7 @@ public class TbPrologisReSendNotificationNode implements TbNode {
             if (!CollectionUtils.isEmpty(alarms)) {
                 for (Alarm alarm : alarms) {
                     try {
-                        ctx.tellSuccess(TbMsg.newMsg(msg.getType(), alarm.getOriginator(), msg.getMetaData(), MAPPER.writeValueAsString(alarm)));
+                        ctx.enqueueForTellNext(TbMsg.newMsg(msg.getType(), alarm.getOriginator(), msg.getMetaData(), MAPPER.writeValueAsString(alarm)), SUCCESS);
                     } catch (JsonProcessingException e) {
                         ctx.tellFailure(TbMsg.newMsg(msg.getType(), alarm.getOriginator(), msg.getMetaData(), msg.getData()), e);
                     }
