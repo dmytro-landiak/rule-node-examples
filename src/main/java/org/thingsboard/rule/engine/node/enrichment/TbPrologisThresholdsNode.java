@@ -349,13 +349,12 @@ public class TbPrologisThresholdsNode implements TbNode {
     }
 
     private Map<String, KvEntry> getKvEntriesByKey(TbMsg msg) {
-
         return JsonConverter.convertToTelemetry(new JsonParser().parse(msg.getData()), msg.getTs())
                 .values()
                 .stream()
                 .flatMap(Collection::stream)
-                .filter(kvEntry -> config.getTelemetryKeysNames().contains(kvEntry.getKey().replace(VALUE, ""))
-                        || config.getTelemetryKeysNames().contains(kvEntry.getKey().replace(UOM, "")))
+                .filter(kvEntry -> config.getTelemetryKeys().contains(kvEntry.getKey().replace(VALUE, ""))
+                        || config.getTelemetryKeys().contains(kvEntry.getKey().replace(UOM, "")))
                 .collect(Collectors.toMap(KvEntry::getKey, kvEntry -> kvEntry));
     }
 
