@@ -48,6 +48,12 @@
         </dependency>
         <dependency>
             <groupId>org.thingsboard.common</groupId>
+            <artifactId>proto</artifactId>
+            <scope>provided</scope>
+            <version>${thingsboard.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.thingsboard.common</groupId>
             <artifactId>message</artifactId>
             <scope>provided</scope>
             <version>${thingsboard.version}</version>
