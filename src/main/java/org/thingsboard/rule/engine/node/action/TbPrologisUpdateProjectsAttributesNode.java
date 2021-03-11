@@ -79,6 +79,7 @@ public class TbPrologisUpdateProjectsAttributesNode implements TbNode {
     private static final String DATA_DEVICE_TYPE = "DATA_DEVICE";
     private static final String IS_IN_SPACE = "IS_IN_SPACE";
     private static final String ACTIVE_ATTR = "active";
+    private static final String DEVICES = "Devices";
     private final Set<String> exceptGroupNames = new HashSet<>(Arrays.asList("All", "DATA_DEVICE"));
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -206,7 +207,8 @@ public class TbPrologisUpdateProjectsAttributesNode implements TbNode {
             if (!CollectionUtils.isEmpty(deviceGroups)) {
                 return deviceGroups
                         .stream()
-                        .filter(entityGroup -> !exceptGroupNames.contains(entityGroup.getName()))
+                        .filter(entityGroup -> !exceptGroupNames.contains(entityGroup.getName())
+                                || !entityGroup.getName().endsWith(DEVICES))
                         .collect(Collectors.toList());
             }
             return null;
