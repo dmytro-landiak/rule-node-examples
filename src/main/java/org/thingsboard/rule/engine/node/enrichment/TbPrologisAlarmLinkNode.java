@@ -23,7 +23,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.util.CollectionUtils;
+import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.thingsboard.common.util.DonAsynchron;
 import org.thingsboard.rule.engine.api.RuleNode;
 import org.thingsboard.rule.engine.api.TbContext;
@@ -45,9 +49,11 @@ import org.thingsboard.server.common.data.relation.EntitySearchDirection;
 import org.thingsboard.server.common.data.relation.EntityTypeFilter;
 import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
+import reactor.netty.http.client.HttpClient;
 
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
@@ -67,10 +73,13 @@ public class TbPrologisAlarmLinkNode implements TbNode {
     private static final String STATE = "/?state=";
     private static final String ID_BUILDINGS = "buildings";
     private static final String ID_BUILDING_INDICATORS = "building_indicators_and_card_with_move_count";
+    private static final String CREATE_SHORT_URL = "https://d3l24qqaaa9x7b.cloudfront.net/create";
+    private static final String LONG_URL = "long_url";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private TbPrologisAlarmLinkNodeConfiguration config;
     private DashboardId dashboardId;
+    private WebClient webClient;
 
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
@@ -82,6 +91,9 @@ public class TbPrologisAlarmLinkNode implements TbNode {
                 .filter(dashboardInfo -> dashboardInfo.getName().equals(DASHBOARD_NAME))
                 .map(IdBased::getId)
                 .findFirst();
+        webClient = WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(HttpClient.create().followRedirect(true)))
+                .build();
         if (dashboardIdOptional.isPresent()) {
             dashboardId = dashboardIdOptional.get();
         } else {
@@ -101,7 +113,25 @@ public class TbPrologisAlarmLinkNode implements TbNode {
                             dashboardId.getId() +
                             STATE +
                             encodeToString;
-                    msg.getMetaData().putValue("alarmLink", alarmLink);
+                    webClient.post()
+                            .uri(CREATE_SHORT_URL)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .accept(MediaType.APPLICATION_JSON)
+                            .bodyValue(new HashMap<String, String>(){{
+                                put(LONG_URL, alarmLink);
+                            }})
+                            .retrieve()
+                            .bodyToMono(String.class)
+                            .doOnError(throwable -> {
+                                log.warn("Failed to generate short url from long url[{}], Exception : {}", alarmLink, throwable);
+                                ctx.tellSuccess(msg);
+                            })
+                            .doOnSuccess(body -> {
+                                msg.getMetaData().putValue("alarmLink", body);
+                                ctx.tellSuccess(msg);
+                            })
+                            .subscribe();
+                    return;
                 } catch (JsonProcessingException e) {
                     log.warn("Didn't parse json to bytes!", e);
                 }
