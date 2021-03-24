@@ -13,26 +13,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.thingsboard.rule.engine.node.transform;
+package org.thingsboard.rule.engine.node.conf;
 
+import com.google.common.util.concurrent.FutureCallback;
 import lombok.Data;
-import org.thingsboard.rule.engine.api.NodeConfiguration;
+import org.thingsboard.rule.engine.api.TbContext;
+import org.thingsboard.server.common.msg.TbMsg;
 
+import javax.annotation.Nullable;
 
 @Data
-public class TbCalculateSumNodeConfiguration implements NodeConfiguration<TbCalculateSumNodeConfiguration> {
+public class VixNodeCallback implements FutureCallback<Void> {
 
-    private String inputKey;
-    private String outputKey;
+    private final TbContext ctx;
+    private final TbMsg msg;
 
     @Override
-    public TbCalculateSumNodeConfiguration defaultConfiguration() {
-        TbCalculateSumNodeConfiguration configuration = new TbCalculateSumNodeConfiguration();
-        configuration.setInputKey("temperature");
-        configuration.setOutputKey("TemperatureSum");
-        return configuration;
+    public void onSuccess(@Nullable Void result) {
     }
 
+    @Override
+    public void onFailure(Throwable t) {
+    }
 }
-
-

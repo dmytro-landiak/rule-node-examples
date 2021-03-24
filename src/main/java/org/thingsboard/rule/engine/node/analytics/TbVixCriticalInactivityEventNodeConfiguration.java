@@ -13,20 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.thingsboard.rule.engine.node.filter;
+package org.thingsboard.rule.engine.node.analytics;
 
 import lombok.Data;
 import org.thingsboard.rule.engine.api.NodeConfiguration;
 
 @Data
-public class TbKeyFilterNodeConfiguration implements NodeConfiguration<TbKeyFilterNodeConfiguration> {
+public class TbVixCriticalInactivityEventNodeConfiguration implements NodeConfiguration<TbVixCriticalInactivityEventNodeConfiguration> {
 
-    private String key;
+    private int executionPeriodInSec;
+    private int criticalInactivityTimeoutInSec;
 
     @Override
-    public TbKeyFilterNodeConfiguration defaultConfiguration() {
-        TbKeyFilterNodeConfiguration configuration = new TbKeyFilterNodeConfiguration();
-        configuration.setKey(null);
+    public TbVixCriticalInactivityEventNodeConfiguration defaultConfiguration() {
+        TbVixCriticalInactivityEventNodeConfiguration configuration = new TbVixCriticalInactivityEventNodeConfiguration();
+        configuration.setExecutionPeriodInSec(300);
+        configuration.setCriticalInactivityTimeoutInSec(86400);
         return configuration;
     }
 }
