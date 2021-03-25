@@ -13,26 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.thingsboard.rule.engine.node.conf;
+package org.thingsboard.rule.engine.vix;
 
-import com.google.common.util.concurrent.FutureCallback;
 import lombok.Data;
-import org.thingsboard.rule.engine.api.TbContext;
-import org.thingsboard.server.common.msg.TbMsg;
-
-import javax.annotation.Nullable;
+import org.thingsboard.rule.engine.api.NodeConfiguration;
 
 @Data
-public class VixNodeCallback implements FutureCallback<Void> {
+public class TbVixOnboardingRuleNodeConfiguration implements NodeConfiguration<TbVixOnboardingRuleNodeConfiguration> {
 
-    private final TbContext ctx;
-    private final TbMsg msg;
-
-    @Override
-    public void onSuccess(@Nullable Void result) {
-    }
+    private String customerName;
 
     @Override
-    public void onFailure(Throwable t) {
+    public TbVixOnboardingRuleNodeConfiguration defaultConfiguration() {
+        TbVixOnboardingRuleNodeConfiguration configuration = new TbVixOnboardingRuleNodeConfiguration();
+        configuration.setCustomerName("STIB");
+        return configuration;
     }
 }

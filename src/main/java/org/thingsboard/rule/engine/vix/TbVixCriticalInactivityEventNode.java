@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.thingsboard.rule.engine.node.analytics;
+package org.thingsboard.rule.engine.vix;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.util.concurrent.Futures;
@@ -31,8 +31,6 @@ import org.thingsboard.rule.engine.api.TbNode;
 import org.thingsboard.rule.engine.api.TbNodeConfiguration;
 import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
-import org.thingsboard.rule.engine.node.conf.JacksonUtil;
-import org.thingsboard.rule.engine.node.conf.VixNodeCallback;
 import org.thingsboard.server.common.data.DataConstants;
 import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.id.DeviceId;

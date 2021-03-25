@@ -13,20 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.thingsboard.rule.engine.node.action;
+package org.thingsboard.rule.engine.vix;
 
 import lombok.Data;
 import org.thingsboard.rule.engine.api.NodeConfiguration;
 
 @Data
-public class TbVixOnboardingRuleNodeConfiguration implements NodeConfiguration<TbVixOnboardingRuleNodeConfiguration> {
+public class TbVixInactivityAlarmNodeConfiguration implements NodeConfiguration<TbVixInactivityAlarmNodeConfiguration> {
 
-    private String customerName;
+    private long criticalInactivityTimeoutMs;
 
     @Override
-    public TbVixOnboardingRuleNodeConfiguration defaultConfiguration() {
-        TbVixOnboardingRuleNodeConfiguration configuration = new TbVixOnboardingRuleNodeConfiguration();
-        configuration.setCustomerName("STIB");
+    public TbVixInactivityAlarmNodeConfiguration defaultConfiguration() {
+        TbVixInactivityAlarmNodeConfiguration configuration = new TbVixInactivityAlarmNodeConfiguration();
+        configuration.setCriticalInactivityTimeoutMs(86400000);
         return configuration;
     }
 }

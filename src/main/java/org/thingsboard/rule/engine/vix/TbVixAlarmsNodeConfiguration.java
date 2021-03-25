@@ -13,8 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.thingsboard.rule.engine.node.conf;
+package org.thingsboard.rule.engine.vix;
 
-public enum VixEntity {
-    IP, TM, OTHER, CUSTOMER
+import lombok.Data;
+import org.thingsboard.rule.engine.api.NodeConfiguration;
+
+@Data
+public class TbVixAlarmsNodeConfiguration implements NodeConfiguration<TbVixAlarmsNodeConfiguration> {
+
+    private int evaluatedDataPoints;
+    private int dataPointsToAlarm;
+
+    @Override
+    public TbVixAlarmsNodeConfiguration defaultConfiguration() {
+        TbVixAlarmsNodeConfiguration configuration = new TbVixAlarmsNodeConfiguration();
+        configuration.setEvaluatedDataPoints(5);
+        configuration.setDataPointsToAlarm(5);
+        return configuration;
+    }
 }

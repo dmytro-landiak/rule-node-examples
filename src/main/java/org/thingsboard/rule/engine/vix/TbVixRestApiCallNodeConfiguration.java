@@ -13,22 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.thingsboard.rule.engine.node.analytics;
+package org.thingsboard.rule.engine.vix;
 
 import lombok.Data;
 import org.thingsboard.rule.engine.api.NodeConfiguration;
 
 @Data
-public class TbVixCriticalInactivityEventNodeConfiguration implements NodeConfiguration<TbVixCriticalInactivityEventNodeConfiguration> {
+public class TbVixRestApiCallNodeConfiguration implements NodeConfiguration<TbVixRestApiCallNodeConfiguration> {
 
-    private int executionPeriodInSec;
-    private int criticalInactivityTimeoutInSec;
+    private String restEndpointUrl;
+    private String installationIdRegexAttrName;
 
     @Override
-    public TbVixCriticalInactivityEventNodeConfiguration defaultConfiguration() {
-        TbVixCriticalInactivityEventNodeConfiguration configuration = new TbVixCriticalInactivityEventNodeConfiguration();
-        configuration.setExecutionPeriodInSec(300);
-        configuration.setCriticalInactivityTimeoutInSec(86400);
+    public TbVixRestApiCallNodeConfiguration defaultConfiguration() {
+        TbVixRestApiCallNodeConfiguration configuration = new TbVixRestApiCallNodeConfiguration();
+        configuration.setRestEndpointUrl("http://localhost/api");
+        configuration.setInstallationIdRegexAttrName("installationIdRegex");
         return configuration;
     }
 }

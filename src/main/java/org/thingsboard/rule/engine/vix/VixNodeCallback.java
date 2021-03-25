@@ -13,20 +13,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.thingsboard.rule.engine.node.analytics;
+package org.thingsboard.rule.engine.vix;
 
+import com.google.common.util.concurrent.FutureCallback;
 import lombok.Data;
-import org.thingsboard.rule.engine.api.NodeConfiguration;
+import org.thingsboard.rule.engine.api.TbContext;
+import org.thingsboard.server.common.msg.TbMsg;
+
+import javax.annotation.Nullable;
 
 @Data
-public class TbVixCalculateAvailabilityNodeConfiguration implements NodeConfiguration<TbVixCalculateAvailabilityNodeConfiguration> {
+public class VixNodeCallback implements FutureCallback<Void> {
 
-    private String dateOfExecution;
+    private final TbContext ctx;
+    private final TbMsg msg;
 
     @Override
-    public TbVixCalculateAvailabilityNodeConfiguration defaultConfiguration() {
-        TbVixCalculateAvailabilityNodeConfiguration configuration = new TbVixCalculateAvailabilityNodeConfiguration();
-        configuration.setDateOfExecution("2021-10-10 10:10:10");
-        return configuration;
+    public void onSuccess(@Nullable Void result) {
+    }
+
+    @Override
+    public void onFailure(Throwable t) {
     }
 }
