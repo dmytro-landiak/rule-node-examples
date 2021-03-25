@@ -75,6 +75,7 @@ public class TbPrologisAlarmLinkNode implements TbNode {
     private static final String ID_BUILDING_INDICATORS = "building_indicators_and_card_with_move_count";
     private static final String CREATE_SHORT_URL = "https://d3l24qqaaa9x7b.cloudfront.net/create";
     private static final String LONG_URL = "long_url";
+    private static final String SHORT = "short";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private TbPrologisAlarmLinkNodeConfiguration config;
@@ -127,7 +128,7 @@ public class TbPrologisAlarmLinkNode implements TbNode {
                                 ctx.tellSuccess(msg);
                             })
                             .doOnSuccess(body -> {
-                                msg.getMetaData().putValue("alarmLink", body);
+                                msg.getMetaData().putValue("alarmLink", config.getLinkPrefix().replace("dashboards", SHORT) + body);
                                 ctx.tellSuccess(msg);
                             })
                             .subscribe();
@@ -138,7 +139,6 @@ public class TbPrologisAlarmLinkNode implements TbNode {
             }
             ctx.tellSuccess(msg);
         }, throwable -> ctx.tellFailure(msg, throwable));
-
     }
 
     private ListenableFuture<ArrayNode> getArrayNode(TbContext ctx, TbMsg msg) {
