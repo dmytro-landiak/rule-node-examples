@@ -17,6 +17,7 @@ package org.thingsboard.rule.engine.node.enrichment;
 
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
@@ -34,7 +35,7 @@ import org.thingsboard.server.common.data.EntityType;
 import org.thingsboard.server.common.data.User;
 import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.id.UserId;
-import org.thingsboard.server.common.data.kv.AttributeKvEntry;
+import org.thingsboard.server.common.data.kv.KvEntry;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.data.relation.EntityRelation;
 import org.thingsboard.server.common.data.relation.EntityRelationsQuery;
@@ -46,10 +47,11 @@ import org.thingsboard.server.common.msg.TbMsgMetaData;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static org.thingsboard.rule.engine.api.TbRelationTypes.SUCCESS;
@@ -70,11 +72,13 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
 
     private final static String NOTIFICATION_TYPE = "notificationType";
     private final static String MOBILE_PHONE_NUMBER = "mobilePhoneNumber";
+    private final static String TEMPERATURE_UNIT = "temperatureUnit";
     private final static String EMAIL_NOTIFICATION = "email";
     private final static String SMS_NOTIFICATION = "sms";
     private final static String ALL_NOTIFICATION = "all";
+    private final static String FAHRENHEIT_SIGN = "F";
 
-    private final static List<String> ATTRIBUTES = Arrays.asList(NOTIFICATION_TYPE, MOBILE_PHONE_NUMBER);
+    private final static List<String> ATTRIBUTES = Arrays.asList(NOTIFICATION_TYPE, MOBILE_PHONE_NUMBER, TEMPERATURE_UNIT);
 
     private EmptyNodeConfiguration config;
     private Customer prologis;
@@ -99,18 +103,7 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
                             .collect(Collectors.toList());
                     return Futures.transformAsync(ctx.getUserService().findUsersByTenantIdAndIdsAsync(ctx.getTenantId(), entityIds), users -> {
                         if (!CollectionUtils.isEmpty(users)) {
-                            UsersData fullNamesAndEmails = new UsersData();
-                            UsersData fullNamesAndMobileNumbers = new UsersData();
-                            Map<User, ListenableFuture<List<AttributeKvEntry>>> usersAttributes = getUsersAttributes(ctx, users);
-                            List<ListenableFuture<Void>> updateEmailsAndMobileNumbersFutures = new ArrayList<>();
-                            for (Map.Entry<User, ListenableFuture<List<AttributeKvEntry>>> entry : usersAttributes.entrySet()) {
-                                updateEmailsAndMobileNumbersFutures.add(Futures.transform(entry.getValue(), attributeKvEntries -> {
-                                    updateEmailsAndPhoneNumbers(entry.getKey(), attributeKvEntries, fullNamesAndEmails, fullNamesAndMobileNumbers);
-                                    return null;
-                                }, ctx.getDbCallbackExecutor()));
-                            }
-                            return Futures.transform(Futures.allAsList(updateEmailsAndMobileNumbersFutures),
-                                    voids -> getMessages(msg, fullNamesAndEmails, fullNamesAndMobileNumbers), ctx.getDbCallbackExecutor());
+                            return getMessages(ctx, msg, users);
                         }
                         return Futures.immediateFuture(null);
                     }, ctx.getDbCallbackExecutor());
@@ -128,87 +121,93 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
         }, throwable -> ctx.tellFailure(msg, throwable));
     }
 
-    private void updateEmailsAndPhoneNumbers(User user, List<AttributeKvEntry> attributeKvEntries,
-                                             UsersData fullNamesAndEmails, UsersData fullNamesAndMobileNumbers) {
-        if (CollectionUtils.isEmpty(attributeKvEntries)) {
-            return;
-        }
-        Map<String, String> attributesMap = getAttributesMap(attributeKvEntries);
-        if (attributesMap.containsKey(NOTIFICATION_TYPE)) {
-            switch (attributesMap.get(NOTIFICATION_TYPE)) {
-                case EMAIL_NOTIFICATION:
-                    fullNamesAndEmails.addFullName(user.getFirstName() + " " + user.getLastName());
-                    fullNamesAndEmails.addSourceOfCommunicateWay(user.getEmail());
-                    break;
-                case SMS_NOTIFICATION:
-                    addToMobileNumbersList(attributesMap, user, fullNamesAndMobileNumbers);
-                    break;
-                case ALL_NOTIFICATION:
-                    addToMobileNumbersList(attributesMap, user, fullNamesAndMobileNumbers);
-
-                    fullNamesAndEmails.addFullName(user.getFirstName() + " " + user.getLastName());
-                    fullNamesAndEmails.addSourceOfCommunicateWay(user.getEmail());
-                    break;
-                default:
-                    log.warn("User with email = {} doesn't have valid notification type", user.getEmail());
+    private ListenableFuture<List<TbMsg>> getMessages(TbContext ctx, TbMsg msg, List<User> users) {
+        return Futures.transform(getUsersData(ctx, users), usersData -> {
+            List<TbMsg> messages = new ArrayList<>();
+            if (!CollectionUtils.isEmpty(usersData)) {
+                for (Map.Entry<String, List<UserData>> usersDataByNotificationTypeEntry : usersData.stream()
+                        .collect(Collectors.groupingBy(UserData::getNotificationType))
+                        .entrySet()) {
+                    for (Map.Entry<String, List<UserData>> usersDataByTempUnitEntry : usersDataByNotificationTypeEntry.getValue()
+                            .stream()
+                            .collect(Collectors.groupingBy(UserData::getTemperatureUnit))
+                            .entrySet()) {
+                        if (!CollectionUtils.isEmpty(usersDataByTempUnitEntry.getValue())) {
+                            TbMsgMetaData metaData = msg.getMetaData().copy();
+                            metaData.putValue("fullNames", usersDataByTempUnitEntry.getValue()
+                                    .stream()
+                                    .map(UserData::getFullName)
+                                    .collect(Collectors.joining(",")));
+                            metaData.putValue("temperatureUnit", usersDataByTempUnitEntry.getKey());
+                            String sourcesOfCommunications = usersDataByTempUnitEntry.getValue()
+                                    .stream()
+                                    .map(UserData::getSourceOfCommunicateWay)
+                                    .collect(Collectors.joining(","));
+                            switch (usersDataByNotificationTypeEntry.getKey()) {
+                                case EMAIL_NOTIFICATION:
+                                    metaData.putValue("emails", sourcesOfCommunications);
+                                    messages.add(TbMsg.newMsg(EMAIL_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
+                                    break;
+                                case SMS_NOTIFICATION:
+                                    metaData.putValue("mobilePhoneNumbers", sourcesOfCommunications);
+                                    messages.add(TbMsg.newMsg(SMS_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
+                                    break;
+                            }
+                        }
+                    }
+                }
             }
-        } else {
-            log.warn("User with email = {} doesn't have notificationType attribute", user.getEmail());
-        }
+            return messages;
+        }, ctx.getDbCallbackExecutor());
     }
 
-    private Map<User, ListenableFuture<List<AttributeKvEntry>>> getUsersAttributes(TbContext ctx, List<User> users) {
-        Map<User, ListenableFuture<List<AttributeKvEntry>>> usersAttributes = new HashMap<>();
+    private ListenableFuture<List<UserData>> getUsersData(TbContext ctx, List<User> users) {
+        List<ListenableFuture<List<UserData>>> userDataListFutures = new ArrayList<>();
         for (User user : users) {
-            ListenableFuture<List<AttributeKvEntry>> attributesFuture = ctx.getAttributesService()
-                    .find(ctx.getTenantId(), user.getId(), DataConstants.SERVER_SCOPE, ATTRIBUTES);
-            usersAttributes.put(user, attributesFuture);
+            userDataListFutures.add(Futures.transform(ctx.getAttributesService()
+                    .find(ctx.getTenantId(), user.getId(), DataConstants.SERVER_SCOPE, ATTRIBUTES), attrs -> {
+                if (CollectionUtils.isEmpty(attrs)) {
+                    return null;
+                }
+                Map<String, String> attributesMap = attrs.stream().collect(Collectors.toMap(KvEntry::getKey, KvEntry::getValueAsString));
+                String notificationType = attributesMap.get(NOTIFICATION_TYPE);
+                String fullName = user.getFirstName() + " " + user.getLastName();
+                String temperatureUnit = attributesMap.getOrDefault(TEMPERATURE_UNIT, FAHRENHEIT_SIGN);
+                String mobileNumber = attributesMap.get(MOBILE_PHONE_NUMBER);
+                if (notificationType != null) {
+                    switch (notificationType) {
+                        case EMAIL_NOTIFICATION:
+                            return Collections.singletonList(new UserData(fullName, EMAIL_NOTIFICATION, user.getEmail(), temperatureUnit));
+                        case SMS_NOTIFICATION:
+                            return Collections.singletonList(new UserData(fullName, SMS_NOTIFICATION, mobileNumber, temperatureUnit));
+                        case ALL_NOTIFICATION:
+                            return Arrays.asList(new UserData(fullName, EMAIL_NOTIFICATION, user.getEmail(), temperatureUnit),
+                                    new UserData(fullName, SMS_NOTIFICATION, mobileNumber, temperatureUnit));
+                        default:
+                            log.warn("User with email = {} doesn't have valid notification type[{}]", user.getEmail(), notificationType);
+                    }
+                } else {
+                    log.warn("User with email = {} doesn't have notificationType attribute", user.getEmail());
+                }
+                return null;
+            }, ctx.getDbCallbackExecutor()));
         }
-        return usersAttributes;
-    }
-
-    private List<TbMsg> getMessages(TbMsg msg, UsersData fullNamesAndEmails, UsersData fullNamesAndMobileNumbers) {
-        List<TbMsg> messages = new ArrayList<>();
-        if (!fullNamesAndEmails.getSourceOfCommunicateWay().isEmpty()) {
-            TbMsgMetaData metaData = msg.getMetaData().copy();
-            metaData.putValue("emails", String.join(",", fullNamesAndEmails.getSourceOfCommunicateWay()));
-            metaData.putValue("fullNames", String.join(",", fullNamesAndEmails.getFullNames()));
-            messages.add(TbMsg.newMsg(EMAIL_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
-        }
-        if (!fullNamesAndMobileNumbers.getSourceOfCommunicateWay().isEmpty()) {
-            TbMsgMetaData metaData = msg.getMetaData().copy();
-            metaData.putValue("mobilePhoneNumbers", String.join(",", fullNamesAndMobileNumbers.getSourceOfCommunicateWay()));
-            metaData.putValue("fullNames", String.join(",", fullNamesAndMobileNumbers.getFullNames()));
-            messages.add(TbMsg.newMsg(SMS_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
-        }
-        return messages;
-    }
-
-    private Map<String, String> getAttributesMap(List<AttributeKvEntry> attributeKvEntries) {
-        Map<String, String> resMap = new HashMap<>();
-        for (AttributeKvEntry attributeKvEntry : attributeKvEntries) {
-            resMap.put(attributeKvEntry.getKey(), attributeKvEntry.getValueAsString());
-        }
-        return resMap;
-    }
-
-    private void addToMobileNumbersList(Map<String, String> attributesMap, User user, UsersData fullNamesAndMobileNumbers) {
-        if (!attributesMap.containsKey(MOBILE_PHONE_NUMBER)) {
-            log.warn("User with email = {} doesn't have mobilePhoneNumber attribute", user.getEmail());
-            return;
-        }
-        String phoneNumber = attributesMap.get(MOBILE_PHONE_NUMBER);
-        if (phoneNumber != null && !phoneNumber.isEmpty()) {
-            fullNamesAndMobileNumbers.addFullName(user.getFirstName() + " " + user.getLastName());
-            fullNamesAndMobileNumbers.addSourceOfCommunicateWay(phoneNumber);
-        } else {
-            log.warn("User with email = {} have empty mobilePhoneNumber attribute", user.getEmail());
-        }
+        return Futures.transform(Futures.allAsList(userDataListFutures), usersDataList -> {
+            if (CollectionUtils.isEmpty(usersDataList)) {
+                return new ArrayList<>();
+            }
+            return usersDataList.stream()
+                    .filter(list -> !CollectionUtils.isEmpty(list))
+                    .flatMap(Collection::stream)
+                    .filter(Objects::nonNull)
+                    .filter(userData -> userData.getSourceOfCommunicateWay() != null)
+                    .collect(Collectors.toList());
+        }, ctx.getDbCallbackExecutor());
     }
 
     private EntityRelationsQuery getEntityRelationsQuery(EntityId originatorId) {
         RelationsSearchParameters relationsSearchParameters = new RelationsSearchParameters(originatorId,
-                EntitySearchDirection.TO, 4, true);
+                EntitySearchDirection.TO, 10, false);
 
         EntityRelationsQuery entityRelationsQuery = new EntityRelationsQuery();
         entityRelationsQuery.setParameters(relationsSearchParameters);
@@ -222,16 +221,11 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
     }
 
     @Data
-    private static class UsersData {
-        private final List<String> fullNames = new ArrayList<>();
-        private final List<String> sourceOfCommunicateWay = new ArrayList<>();
-
-        void addFullName(String fullName) {
-            fullNames.add(fullName);
-        }
-
-        void addSourceOfCommunicateWay(String string) {
-            sourceOfCommunicateWay.add(string);
-        }
+    @AllArgsConstructor
+    private static class UserData {
+        private String fullName;
+        private String notificationType;
+        private String sourceOfCommunicateWay;
+        private String temperatureUnit;
     }
 }

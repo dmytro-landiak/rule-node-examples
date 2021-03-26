@@ -26,7 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.util.CollectionUtils;
-import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.thingsboard.common.util.DonAsynchron;
 import org.thingsboard.rule.engine.api.RuleNode;
@@ -55,6 +54,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
@@ -72,10 +72,19 @@ public class TbPrologisAlarmLinkNode implements TbNode {
     private static final String DASHBOARD_NAME = "Pump Rooms";
     private static final String STATE = "/?state=";
     private static final String ID_BUILDINGS = "buildings";
-    private static final String ID_BUILDING_INDICATORS = "building_indicators_and_card_with_move_count";
     private static final String CREATE_SHORT_URL = "https://d3l24qqaaa9x7b.cloudfront.net/create";
     private static final String LONG_URL = "long_url";
     private static final String SHORT = "short";
+    private final static String FAHRENHEIT_SIGN = "F";
+    private final static String CELSIUS_SIGN = "C";
+    private final static String TEMPERATURE_UNIT = "temperatureUnit";
+
+    // this dashboard state name is critical!! do not change it without confirmation with frontend team
+    private final static Map<String, String> DASHBOARDS_STATES_MAP = new HashMap<String, String>(){{
+       put(FAHRENHEIT_SIGN, "alarm_device_group_all_f");
+       put(CELSIUS_SIGN, "alarm_device_group_all_c");
+    }};
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private TbPrologisAlarmLinkNodeConfiguration config;
@@ -147,7 +156,11 @@ public class TbPrologisAlarmLinkNode implements TbNode {
         firstObject.set("params", OBJECT_MAPPER.createObjectNode());
 
         ObjectNode secondObject = OBJECT_MAPPER.createObjectNode();
-        secondObject.put("id", ID_BUILDING_INDICATORS);
+        String dashboardState = DASHBOARDS_STATES_MAP.get(msg.getMetaData().getValue(TEMPERATURE_UNIT));
+        if (dashboardState == null) {
+            return Futures.immediateFuture(null);
+        }
+        secondObject.put("id", dashboardState);
 
         return Futures.transform(getParams(ctx, msg), params -> {
             if (params == null) {
