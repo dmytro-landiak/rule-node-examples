@@ -101,11 +101,13 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
                         n -> new DeviceData(
                                 DeviceId.fromString(jo.get("id").getAsJsonObject().get("id").getAsString()),
                                 jo.get("type").getAsString()));
+                ctx.ack(msg);
                 break;
             }
             case DataConstants.ENTITY_DELETED: {
                 JsonObject jo = getJsonObject(msg);
                 devicesMap.remove(jo.get("name").getAsString());
+                ctx.ack(msg);
                 break;
             }
             case TB_MSG_CUSTOM_NODE_MSG:
@@ -137,9 +139,10 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
                     }, ctx.getDbCallbackExecutor()));
                 }
                 DonAsynchron.withCallback(Futures.successfulAsList(msgsFutures), tbMsgs -> {
+                    ctx.ack(msg);
                     for (TbMsg tempMsg : tbMsgs) {
                         if (tempMsg != null) {
-                            ctx.tellNext(tempMsg, CRITICAL_INACTIVITY_EVENT);
+                            ctx.enqueueForTellNext(tempMsg, CRITICAL_INACTIVITY_EVENT);
                         }
                     }
                     scheduleTickMsg(ctx);
@@ -170,7 +173,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
         }
         lastScheduledTs = lastScheduledTs + delay;
         long curDelay = Math.max(0L, (lastScheduledTs - curTs));
-        TbMsg tickMsg = ctx.newMsg(ServiceQueue.MAIN, "", ctx.getSelfId(), new TbMsgMetaData(), "");
+        TbMsg tickMsg = ctx.newMsg(ServiceQueue.MAIN, TB_MSG_CUSTOM_NODE_MSG, ctx.getSelfId(), new TbMsgMetaData(), "");
         ctx.tellSelf(tickMsg, curDelay);
     }
 
@@ -181,7 +184,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
 
     private ListenableFuture<State> getAttributes(TbContext ctx, DeviceId deviceId) {
         ListenableFuture<List<AttributeKvEntry>> attributesFuture = ctx.getAttributesService()
-                .find(ctx.getTenantId(), deviceId, "SERVER_SCOPE", ATTRIBUTES);
+                .find(ctx.getTenantId(), deviceId, DataConstants.SERVER_SCOPE, ATTRIBUTES);
         return Futures.transform(attributesFuture, attributes -> {
             boolean active = getEntryValue(attributes, ACTIVITY_STATE, false);
             long lastActivityTime = getEntryValue(attributes, LAST_ACTIVITY_TIME, 0L);
@@ -200,6 +203,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
             pageLink = page.hasNext() ? pageLink.nextPageLink() : null;
             page.getData().forEach(device -> map.computeIfAbsent(device.getName(), n -> new DeviceData(device.getId(), device.getType())));
         }
+        log.info("[{}] Found {} devices for critical inactivity processing!", ctx.getTenantId(), map.size());
         return map;
     }
 
