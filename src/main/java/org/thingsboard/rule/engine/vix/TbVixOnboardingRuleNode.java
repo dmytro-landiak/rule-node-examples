@@ -37,6 +37,7 @@ import org.thingsboard.server.common.data.DataConstants;
 import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.EntityType;
 import org.thingsboard.server.common.data.asset.Asset;
+import org.thingsboard.server.common.data.id.AssetId;
 import org.thingsboard.server.common.data.id.DeviceId;
 import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.kv.AttributeKvEntry;
@@ -139,18 +140,22 @@ public class TbVixOnboardingRuleNode implements TbNode {
             }, throwable -> ctx.tellFailure(msg, throwable));
         } else if (EntityType.ASSET.equals(msg.getOriginator().getEntityType())
                 && DataConstants.ATTRIBUTES_UPDATED.equals(msg.getType())) {
-            JsonObject json = new JsonParser().parse(msg.getData()).getAsJsonObject();
-            if (json.has(NUMBER)) {
-                TransitModeInfo tmInfo = transitModeInfoByNumber.computeIfAbsent(json.get(NUMBER).getAsString(), number -> new TransitModeInfo());
-                tmInfo.setTransitModeId(msg.getOriginator());
-                tmInfo.setTransitType(json.has(TRANSIT_TYPE) ? json.get(TRANSIT_TYPE).getAsString() : null);
-            } else if (json.has(TRANSIT_TYPE)) {
-                Optional<TransitModeInfo> tmInfoOpt = transitModeInfoByNumber.values()
-                        .stream()
-                        .filter(m -> m.getTransitModeId()
-                                .equals(msg.getOriginator()))
-                        .findFirst();
-                tmInfoOpt.ifPresent(transitModeInfo -> transitModeInfo.setTransitType(json.get(TRANSIT_TYPE).getAsString()));
+            Asset asset = ctx.getAssetService().findAssetById(ctx.getTenantId(), AssetId.fromString(msg.getOriginator().getId().toString()));
+            if (asset.getType().equals(TRANSIT_MODE)) {
+                JsonObject json = new JsonParser().parse(msg.getData()).getAsJsonObject();
+                if (json.has(NUMBER)) {
+                    TransitModeInfo tmInfo = transitModeInfoByNumber.computeIfAbsent(json.get(NUMBER).getAsString(), number -> new TransitModeInfo());
+                    tmInfo.setTransitModeId(msg.getOriginator());
+                    tmInfo.setTransitType(json.has(TRANSIT_TYPE) ? json.get(TRANSIT_TYPE).getAsString() : null);
+                } else if (json.has(TRANSIT_TYPE)) {
+                    Optional<TransitModeInfo> tmInfoOpt = transitModeInfoByNumber.values()
+                            .stream()
+                            .filter(m -> m.getTransitModeId()
+                                    .equals(msg.getOriginator()))
+                            .findFirst();
+                    tmInfoOpt.ifPresent(transitModeInfo -> transitModeInfo.setTransitType(json.get(TRANSIT_TYPE).getAsString()));
+                }
+                log.info("[{}] Added new TM with a number {}", ctx.getTenantId(), json);
             }
             ctx.tellSuccess(msg);
         } else {
@@ -175,7 +180,7 @@ public class TbVixOnboardingRuleNode implements TbNode {
                     if (transitModeInfoByNumber.containsKey(tmNumber)) {
                         pushIpCreateEventToRuleEngine(ctx, device, installationId, transitModeInfoByNumber.get(tmNumber).getTransitType());
                     } else {
-                        log.error("Failed to find TM in map by number {}!", tmNumber);
+                        log.error("[{}] Failed to find TM by number {}!", ctx.getTenantId(), tmNumber);
                     }
                     return Futures.immediateFuture(false);
                 } else {
