@@ -15,7 +15,6 @@
  */
 package org.thingsboard.rule.engine.vix;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -41,8 +40,6 @@ import org.thingsboard.server.common.data.asset.Asset;
 import org.thingsboard.server.common.data.id.DeviceId;
 import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.kv.AttributeKvEntry;
-import org.thingsboard.server.common.data.kv.BaseAttributeKvEntry;
-import org.thingsboard.server.common.data.kv.StringDataEntry;
 import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.plugin.ComponentType;
@@ -75,7 +72,7 @@ import static org.thingsboard.server.common.msg.session.SessionMsgType.POST_ATTR
         type = ComponentType.ACTION,
         name = "vix onboarding",
         configClazz = TbVixOnboardingRuleNodeConfiguration.class,
-        relationTypes = {"Success", "Ip Creation Event", "Service", "Swap Notification", "Clear Alarms Event", "Post attributes"},
+        relationTypes = {"Success", "Ip Creation Event", "Service", "Swap Notification", "Clear Alarms Event", "Post attributes", "Attributes Updated"},
         nodeDescription = "",
         nodeDetails = "",
         uiResources = {"static/rulenode/rulenode-core-config.js"},
@@ -87,28 +84,23 @@ public class TbVixOnboardingRuleNode implements TbNode {
     private static final String TRANSIT_MODE = "transitMode";
     private static final String NUMBER = "number";
     private static final String INSTALLATION_ID = "installationId";
-
     private static final String ESN_KEY = "esn";
+    private static final String TL_KEY = "topologyLocation";
+    private static final String INSTALLATION_POINT_ID = "installationPointId";
+    private static final String IP_TL_PART = "/installationPoints/";
+
     private static final String FROM_TM_TO_FLEET_TYPE = "FromTransitModeToFleet";
     private static final String FROM_TM_TO_LINE_TYPE = "FromTransitModeToLine";
     private static final String FROM_TM_TO_DEPOT_TYPE = "FromTransitModeToDepot";
-
-    private static final String IN_SERVICE = "inService";
-
     private static final String FROM_IP_TO_DEVICE_RELATION = "FromInstallationPointToDevice";
-    private static final String DISPLAY_NAME_KEY = "displayName";
-    private static final String TL_KEY = "topologyLocation";
     private static final String FROM_SO_TO_DEVICE_RELATION = "FromSwappedOutToDevice";
-    private static final String INSTALLATION_POINT_ID = "installationPointId";
-    private static final String OUT_OF_SERVICE = "outOfService";
-    private static final String IP_TL_PART = "/installationPoints/";
 
     private static final String SERVICE_STATE_KEY = "serviceState";
-
-    private final ObjectMapper mapper = new ObjectMapper();
+    private static final String IN_SERVICE = "inService";
+    private static final String OUT_OF_SERVICE = "outOfService";
+    private static final String SERVICE_MSG = "Service";
 
     private final Gson gson = new Gson();
-
     private final ConcurrentMap<String, TransitModeInfo> transitModeInfoByNumber = new ConcurrentHashMap<>();
 
     private TbVixOnboardingRuleNodeConfiguration config;
@@ -167,53 +159,59 @@ public class TbVixOnboardingRuleNode implements TbNode {
     }
 
     private ListenableFuture<Boolean> processOnBoarding(TbContext ctx, TbMsg msg) throws TbNodeException {
-        Device device = ctx.getDeviceService().findDeviceById(ctx.getTenantId(), new DeviceId(msg.getOriginator().getId()));
         JsonObject json = new JsonParser().parse(msg.getData()).getAsJsonObject();
         if (json.has(INSTALLATION_ID)) {
-            String installationId = json.get(INSTALLATION_ID).getAsString();
-            Asset installationPoint = findInstallationPoint(ctx, installationId);
-            String tmNumber = installationId.substring(16, 19);
-            if (installationPoint == null) {
-                log.warn("[{}][{}][{}] Installation point is not present for a device!", ctx.getTenantId(), installationId, device.getName());
-                if (transitModeInfoByNumber.containsKey(tmNumber)) {
-                    pushIpCreateEventToRuleEngine(ctx, device, installationId, transitModeInfoByNumber.get(tmNumber).getTransitType());
-                } else {
-                    log.error("Failed to find TM in map by number {}!", tmNumber);
+            ListenableFuture<Device> deviceFuture = ctx.getDeviceService().findDeviceByIdAsync(ctx.getTenantId(), new DeviceId(msg.getOriginator().getId()));
+            return Futures.transformAsync(deviceFuture, device -> {
+                if (device == null) {
+                    log.error("Failed to find device {}", msg.getOriginator());
+                    return Futures.immediateFuture(false);
                 }
-                return Futures.immediateFuture(false);
-            } else {
-                return Futures.transformAsync(findPresentRelationsByIp(ctx, installationPoint), fromIpToDeviceRelations -> {
-                    if (!CollectionUtils.isEmpty(fromIpToDeviceRelations)) {
-                        EntityRelation presentFromIpToDeviceRelation = fromIpToDeviceRelations.get(0);
-                        if (presentFromIpToDeviceRelation.getTo().getId().equals(device.getId().getId())) {
-                            if (json.has(ESN_KEY)) {
-                                return Futures.immediateFuture(true);
+                String installationId = json.get(INSTALLATION_ID).getAsString();
+                Asset installationPoint = findAssetByName(ctx, installationId);
+                String tmNumber = installationId.substring(16, 19);
+                if (installationPoint == null) {
+                    log.warn("[{}][{}][{}] Installation point is not present for a device!", ctx.getTenantId(), installationId, device.getName());
+                    if (transitModeInfoByNumber.containsKey(tmNumber)) {
+                        pushIpCreateEventToRuleEngine(ctx, device, installationId, transitModeInfoByNumber.get(tmNumber).getTransitType());
+                    } else {
+                        log.error("Failed to find TM in map by number {}!", tmNumber);
+                    }
+                    return Futures.immediateFuture(false);
+                } else {
+                    return Futures.transformAsync(findPresentRelationsByIp(ctx, installationPoint), fromIpToDeviceRelations -> {
+                        if (!CollectionUtils.isEmpty(fromIpToDeviceRelations)) {
+                            EntityRelation presentFromIpToDeviceRelation = fromIpToDeviceRelations.get(0);
+                            if (presentFromIpToDeviceRelation.getTo().getId().equals(device.getId().getId())) {
+                                if (json.has(ESN_KEY)) {
+                                    return Futures.immediateFuture(true);
+                                } else {
+                                    return processOnboarding(ctx, device, installationPoint, presentFromIpToDeviceRelation, installationId, false);
+                                }
                             } else {
-                                return processOnboarding(ctx, device, installationPoint, presentFromIpToDeviceRelation, installationId, false);
+                                return processOnboarding(ctx, device, installationPoint, presentFromIpToDeviceRelation, installationId, true);
                             }
                         } else {
-                            return processOnboarding(ctx, device, installationPoint, presentFromIpToDeviceRelation, installationId, true);
+                            return onBoardDevice(ctx, device, installationPoint, null);
                         }
-                    } else {
-                        return onBoardDevice(ctx, device, installationPoint, null);
-                    }
-                }, ctx.getDbCallbackExecutor());
-            }
+                    }, ctx.getDbCallbackExecutor());
+                }
+            }, ctx.getDbCallbackExecutor());
         } else {
-            log.error("[{}] Installation id attribute is absent in the payload {}!", device.getName(), json);
+            log.error("[{}] Installation id attribute is absent in the payload {}!", msg.getOriginator(), json);
             throw new TbNodeException("Installation id attribute is absent in the payload!");
         }
     }
 
     private void pushIpCreateEventToRuleEngine(TbContext ctx, Device device, String installationId, String transitType) {
         try {
-            ObjectNode entityNode = mapper.createObjectNode();
+            ObjectNode entityNode = JacksonUtil.OBJECT_MAPPER.createObjectNode();
             entityNode.put("installationId", installationId);
             TbMsgMetaData metaData = createDeviceMetaData(device);
             metaData.putValue("customerName", config.getCustomerName());
             metaData.putValue(TRANSIT_TYPE, transitType);
             TbMsg msg = TbMsg.newMsg(DataConstants.IP_CREATION, device.getId(),
-                    metaData, mapper.writeValueAsString(entityNode));
+                    metaData, JacksonUtil.OBJECT_MAPPER.writeValueAsString(entityNode));
             ctx.enqueueForTellNext(msg, "Ip Creation Event");
         } catch (Exception e) {
             log.warn("[{}] Failed to push installation point create notification to rule engine: {}", device.getId(), DataConstants.IP_CREATION, e);
@@ -224,7 +222,7 @@ public class TbVixOnboardingRuleNode implements TbNode {
     public void destroy() {
     }
 
-    private Asset findInstallationPoint(TbContext ctx, String name) {
+    private Asset findAssetByName(TbContext ctx, String name) {
         return ctx.getAssetService().findAssetByTenantIdAndName(ctx.getTenantId(), name);
     }
 
@@ -233,7 +231,7 @@ public class TbVixOnboardingRuleNode implements TbNode {
         String operatorNumber = installationId.substring(5, 15);
         String tmNumber = installationId.substring(16, 19);
         String swappedOutName = getSwappedName(operatorNumber, tmNumber);
-        Asset swappedOut = getSwappedOutAsset(ctx, swappedOutName);
+        Asset swappedOut = findAssetByName(ctx, swappedOutName);
 
         ListenableFuture<Boolean> relationFuture = Futures.transformAsync(
                 deleteRelation(ctx, presentFromIpToDeviceRelation),
@@ -243,8 +241,7 @@ public class TbVixOnboardingRuleNode implements TbNode {
                     }
                     log.warn("[{}]: Didn't find {} asset", ctx.getTenantId(), swappedOutName);
                     return Futures.immediateFuture(false);
-                },
-                ctx.getDbCallbackExecutor());
+                }, ctx.getDbCallbackExecutor());
 
         ListenableFuture<Device> presentDeviceFuture = Futures.transformAsync(relationFuture,
                 b -> ctx.getDeviceService().findDeviceByIdAsync(
@@ -254,7 +251,7 @@ public class TbVixOnboardingRuleNode implements TbNode {
         return Futures.transformAsync(presentDeviceFuture, presentDevice -> {
             TbMsgMetaData metaData = createDeviceMetaData(presentDevice);
             metaData.putValue(INSTALLATION_POINT_ID, presentFromIpToDeviceRelation.getFrom().getId().toString());
-            ctx.enqueueForTellNext(getTbMsg(presentFromIpToDeviceRelation.getTo(), metaData, createJsonObj(OUT_OF_SERVICE, getSwappedName(operatorNumber, tmNumber))), "Service");
+            ctx.enqueueForTellNext(getTbMsg(presentFromIpToDeviceRelation.getTo(), metaData, createJsonObj(OUT_OF_SERVICE, swappedOutName)), SERVICE_MSG);
             if (presentDevice != null) {
                 JsonObject jo = new JsonObject();
                 jo.addProperty(INSTALLATION_ID, "");
@@ -270,10 +267,6 @@ public class TbVixOnboardingRuleNode implements TbNode {
             }
             return Futures.immediateFuture(false);
         }, ctx.getDbCallbackExecutor());
-    }
-
-    private Asset getSwappedOutAsset(TbContext ctx, String name) {
-        return ctx.getAssetService().findAssetByTenantIdAndName(ctx.getTenantId(), name);
     }
 
     private ListenableFuture<Boolean> onBoardDevice(TbContext ctx, Device device, Asset installationPoint, Device prevDevice) {
@@ -295,19 +288,19 @@ public class TbVixOnboardingRuleNode implements TbNode {
 
                                 ListenableFuture<Void> deletedRelationsFuture = deletePresentRelations(ctx, device, relations, transitType);
                                 return Futures.transformAsync(deletedRelationsFuture, v -> {
-                                    ctx.enqueueForTellNext(getTbMsg(device.getId(), createDeviceMetaData(device), createJsonObj(IN_SERVICE, deviceTopologyLocation)), "Service");
+                                    ctx.enqueueForTellNext(getTbMsg(device.getId(), createDeviceMetaData(device), createJsonObj(IN_SERVICE, deviceTopologyLocation)), SERVICE_MSG);
                                     return saveNewRelation(ctx, installationPoint, device, prevDevice, deviceTopologyLocation, transitType);
                                 }, ctx.getDbCallbackExecutor());
                             }, ctx.getDbCallbackExecutor());
                         } else if (relation.getType().equals(FROM_SO_TO_DEVICE_RELATION)) {
                             return Futures.transformAsync(deleteRelation(ctx, relation), b -> {
-                                ctx.enqueueForTellNext(getTbMsg(device.getId(), createDeviceMetaData(device), createJsonObj(IN_SERVICE, deviceTopologyLocation)), "Service");
+                                ctx.enqueueForTellNext(getTbMsg(device.getId(), createDeviceMetaData(device), createJsonObj(IN_SERVICE, deviceTopologyLocation)), SERVICE_MSG);
                                 return saveNewRelation(ctx, installationPoint, device, prevDevice, deviceTopologyLocation, null);
                             }, ctx.getDbCallbackExecutor());
                         }
                     }
                 } else {
-                    ctx.enqueueForTellNext(getTbMsg(device.getId(), createDeviceMetaData(device), createJsonObj(IN_SERVICE, deviceTopologyLocation)), "Service");
+                    ctx.enqueueForTellNext(getTbMsg(device.getId(), createDeviceMetaData(device), createJsonObj(IN_SERVICE, deviceTopologyLocation)), SERVICE_MSG);
                     return saveNewRelation(ctx, installationPoint, device, prevDevice, deviceTopologyLocation, null);
                 }
                 return Futures.immediateFuture(false);
@@ -344,9 +337,9 @@ public class TbVixOnboardingRuleNode implements TbNode {
 
     private void pushDeviceSwapEventToRuleEngine(TbContext ctx, Device device, TbMsgMetaData metaData) {
         try {
-            ObjectNode entityNode = mapper.valueToTree(device);
+            ObjectNode entityNode = JacksonUtil.OBJECT_MAPPER.valueToTree(device);
             TbMsg msg = TbMsg.newMsg(DataConstants.SWAP_NOTIFICATION, device.getId(),
-                    metaData, mapper.writeValueAsString(entityNode));
+                    metaData, JacksonUtil.OBJECT_MAPPER.writeValueAsString(entityNode));
             ctx.enqueueForTellNext(msg, "Swap Notification");
         } catch (Exception e) {
             log.warn("[{}] Failed to push device swap notification to rule engine: {}", device.getId(), DataConstants.SWAP_NOTIFICATION, e);
@@ -388,9 +381,9 @@ public class TbVixOnboardingRuleNode implements TbNode {
 
     private void pushDeviceClearAlarmsEventToRuleEngine(TbContext ctx, Device device, TbMsgMetaData metaData) {
         try {
-            ObjectNode entityNode = mapper.valueToTree(device);
+            ObjectNode entityNode = JacksonUtil.OBJECT_MAPPER.valueToTree(device);
             TbMsg msg = TbMsg.newMsg(DataConstants.CLEAR_ALARMS, device.getId(),
-                    metaData, mapper.writeValueAsString(entityNode));
+                    metaData, JacksonUtil.OBJECT_MAPPER.writeValueAsString(entityNode));
             ctx.enqueueForTellNext(msg, "Clear Alarms Event");
         } catch (Exception e) {
             log.warn("[{}] Failed to push device clear alarms notification to rule engine: {}", device.getId(), DataConstants.CLEAR_ALARMS, e);
@@ -474,17 +467,6 @@ public class TbVixOnboardingRuleNode implements TbNode {
 
     private ListenableFuture<Boolean> deleteRelation(TbContext ctx, EntityRelation relation) {
         return ctx.getRelationService().deleteRelationAsync(ctx.getTenantId(), relation);
-    }
-
-    private ListenableFuture<List<Void>> saveAttributesForSwappedOutAsset(TbContext ctx, Asset swappedOutAsset, String operatorNumber, String tmNumber) {
-        List<AttributeKvEntry> list = new ArrayList<>();
-        list.add(new BaseAttributeKvEntry(System.currentTimeMillis(), new StringDataEntry(DISPLAY_NAME_KEY, "Swapped Out Devices")));
-        list.add(new BaseAttributeKvEntry(System.currentTimeMillis(), new StringDataEntry(TL_KEY, "operators/" + operatorNumber + "/transitModes/" + tmNumber)));
-        return ctx.getAttributesService().save(
-                swappedOutAsset.getTenantId(),
-                swappedOutAsset.getId(),
-                DataConstants.SERVER_SCOPE,
-                list);
     }
 
     private String getSwappedName(String operatorNumber, String tmNumber) {
