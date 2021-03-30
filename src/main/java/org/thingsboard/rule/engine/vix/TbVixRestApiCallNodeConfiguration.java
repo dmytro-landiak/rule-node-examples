@@ -28,7 +28,7 @@ public class TbVixRestApiCallNodeConfiguration implements NodeConfiguration<TbVi
     public TbVixRestApiCallNodeConfiguration defaultConfiguration() {
         TbVixRestApiCallNodeConfiguration configuration = new TbVixRestApiCallNodeConfiguration();
         configuration.setRestEndpointUrl("http://localhost/api");
-        configuration.setInstallationIdRegexAttrName("installationIdRegex");
+        configuration.setInstallationIdRegexAttrName("installationIdFormat");
         return configuration;
     }
 }
