@@ -33,7 +33,9 @@ import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.DataConstants;
 import org.thingsboard.server.common.data.Device;
+import org.thingsboard.server.common.data.EntityType;
 import org.thingsboard.server.common.data.id.DeviceId;
+import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 import org.thingsboard.server.common.data.kv.KvEntry;
 import org.thingsboard.server.common.data.page.PageData;
@@ -53,12 +55,12 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
-
 @Slf4j
 @RuleNode(
         type = ComponentType.ANALYTICS,
         name = "vix critical inactivity event",
         configClazz = TbVixCriticalInactivityEventNodeConfiguration.class,
+        relationTypes = {"Success", "CRITICAL_INACTIVITY_EVENT"},
         nodeDescription = "",
         nodeDetails = "",
         uiResources = {"static/rulenode/rulenode-core-config.js"},
@@ -80,7 +82,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
     private static final int ENTITIES_LIMIT = 1000;
 
     private TbVixCriticalInactivityEventNodeConfiguration config;
-    private ConcurrentMap<String, DeviceData> devicesMap;
+    private ConcurrentMap<DeviceId, DeviceData> devicesDataMap;
     private long lastScheduledTs;
     private long delay;
 
@@ -88,82 +90,121 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
         this.config = TbNodeUtils.convert(configuration, TbVixCriticalInactivityEventNodeConfiguration.class);
         this.delay = TimeUnit.SECONDS.toMillis(config.getExecutionPeriodInSec());
-        devicesMap = getDevices(ctx);
+        try {
+            devicesDataMap = getDeviceDataMap(ctx);
+        } catch (ExecutionException | InterruptedException e) {
+            log.error("[{}] Failed to initialize devicesDataMap for critical inactivity processing!", ctx.getTenantId(), e);
+            throw new TbNodeException(e);
+        }
         scheduleTickMsg(ctx);
     }
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
+        if (msg.getOriginator().getEntityType() != EntityType.DEVICE && !msg.getType().equals(TB_MSG_CUSTOM_NODE_MSG)) {
+            ctx.tellSuccess(msg);
+            return;
+        }
+
         switch (msg.getType()) {
+            case DataConstants.INACTIVITY_EVENT:
+            case DataConstants.ACTIVITY_EVENT: {
+                updateDeviceDataMap(ctx, msg);
+                break;
+            }
             case DataConstants.ENTITY_CREATED: {
-                JsonObject jo = getJsonObject(msg);
-                devicesMap.computeIfAbsent(jo.get("name").getAsString(),
-                        n -> new DeviceData(
-                                DeviceId.fromString(jo.get("id").getAsJsonObject().get("id").getAsString()),
-                                jo.get("type").getAsString()));
-                ctx.ack(msg);
+                JsonObject msgData = getMsgData(msg);
+                DonAsynchron.withCallback(getState(ctx, new DeviceId(msg.getOriginator().getId())), state -> {
+                            devicesDataMap.computeIfAbsent(DeviceId.fromString(msgData.get("id").getAsJsonObject().get("id").getAsString()),
+                                    n -> new DeviceData(msgData.get("name").getAsString(),
+                                            msgData.get("type").getAsString(), state));
+                            ctx.ack(msg);
+                        },
+                        throwable -> ctx.tellFailure(msg, throwable));
                 break;
             }
             case DataConstants.ENTITY_DELETED: {
-                JsonObject jo = getJsonObject(msg);
-                devicesMap.remove(jo.get("name").getAsString());
+                devicesDataMap.remove(new DeviceId(msg.getOriginator().getId()));
                 ctx.ack(msg);
                 break;
             }
             case TB_MSG_CUSTOM_NODE_MSG:
                 long ts = System.currentTimeMillis();
-                List<ListenableFuture<TbMsg>> msgsFutures = new ArrayList<>();
-                for (Map.Entry<String, DeviceData> entry : devicesMap.entrySet()) {
-                    ListenableFuture<State> stateFuture = getAttributes(ctx, entry.getValue().getDeviceId());
-                    msgsFutures.add(Futures.transform(stateFuture, state -> {
-                        if (state != null && !state.isActive() && (ts > (state.getLastActivityTime() + state.getCriticalInactivityTimeout()))) {
-                            if (state.getLastCriticalInactivityAlarmTime() == 0L || state.getLastCriticalInactivityAlarmTime() < state.getLastActivityTime()) {
-                                state.setLastCriticalInactivityAlarmTime(ts);
-                                save(ctx, entry.getValue().getDeviceId(), CRITICAL_INACTIVITY_ALARM_TIME, ts);
+                List<TbMsg> msgs = new ArrayList<>();
+                for (Map.Entry<DeviceId, DeviceData> entry : devicesDataMap.entrySet()) {
+                    State state = entry.getValue().getDeviceState();
+                    if (state != null && !state.isActive() && (ts > (state.getLastActivityTime() + state.getCriticalInactivityTimeout()))) {
+                        if (state.getLastCriticalInactivityAlarmTime() == 0L || state.getLastCriticalInactivityAlarmTime() < state.getLastActivityTime()) {
+                            state.setLastCriticalInactivityAlarmTime(ts);
+                            save(ctx, entry.getKey(), CRITICAL_INACTIVITY_ALARM_TIME, ts);
 
-                                TbMsgMetaData md = new TbMsgMetaData();
-                                md.putValue("deviceName", entry.getKey());
-                                md.putValue("deviceType", entry.getValue().getDeviceType());
+                            TbMsgMetaData md = new TbMsgMetaData();
+                            md.putValue("deviceName", entry.getValue().getDeviceName());
+                            md.putValue("deviceType", entry.getValue().getDeviceType());
 
-                                TbMsg newMsg = null;
-                                try {
-                                    newMsg = TbMsg.newMsg(CRITICAL_INACTIVITY_ALARM_TIME, entry.getValue().getDeviceId(), md, TbMsgDataType.JSON,
-                                            JacksonUtil.OBJECT_MAPPER.writeValueAsString(state));
-                                } catch (JsonProcessingException e) {
-                                    log.warn("[{}] Failed to push critical inactivity event: {}", entry.getValue().getDeviceId(), state, e);
-                                }
-                                return newMsg;
+                            TbMsg newMsg = null;
+                            try {
+                                newMsg = TbMsg.newMsg(CRITICAL_INACTIVITY_ALARM_TIME, entry.getKey(), md, TbMsgDataType.JSON,
+                                        JacksonUtil.OBJECT_MAPPER.writeValueAsString(state));
+                            } catch (JsonProcessingException e) {
+                                log.warn("[{}] Failed to push critical inactivity event: {}", entry.getKey(), state, e);
                             }
-                        }
-                        return null;
-                    }, ctx.getDbCallbackExecutor()));
-                }
-                DonAsynchron.withCallback(Futures.successfulAsList(msgsFutures), tbMsgs -> {
-                    ctx.ack(msg);
-                    for (TbMsg tempMsg : tbMsgs) {
-                        if (tempMsg != null) {
-                            ctx.enqueueForTellNext(tempMsg, CRITICAL_INACTIVITY_EVENT);
+                            msgs.add(newMsg);
                         }
                     }
-                    scheduleTickMsg(ctx);
-                }, throwable -> {
-                    ctx.tellFailure(msg, throwable);
-                    scheduleTickMsg(ctx);
-                });
+                }
+                ctx.ack(msg);
+                for (TbMsg tempMsg : msgs) {
+                    if (tempMsg != null) {
+                        ctx.enqueueForTellNext(tempMsg, CRITICAL_INACTIVITY_EVENT);
+                    }
+                }
+                scheduleTickMsg(ctx);
                 break;
             default:
-                ctx.tellFailure(msg, new RuntimeException("Unexpected message came!"));
+                ctx.tellSuccess(msg);
                 break;
         }
     }
 
-    private JsonObject getJsonObject(TbMsg msg) {
+    private void updateDeviceDataMap(TbContext ctx, TbMsg msg) {
+        JsonObject msgData = getMsgData(msg);
+        DonAsynchron.withCallback(getOrFetchDeviceData(ctx, msg.getOriginator()),
+                deviceData -> {
+                    State state = deviceData.getDeviceState();
+                    state.setActive(msgData.has("active") ? msgData.get("active").getAsBoolean() : state.isActive());
+                    state.setLastActivityTime(msgData.has("lastActivityTime")
+                            ? msgData.get("lastActivityTime").getAsLong()
+                            : state.getLastActivityTime());
+                    state.setLastInactivityAlarmTime(msgData.has("lastInactivityAlarmTime")
+                            ? msgData.get("lastInactivityAlarmTime").getAsLong()
+                            : state.getLastInactivityAlarmTime());
+                    devicesDataMap.put(new DeviceId(msg.getOriginator().getId()), deviceData);
+                    ctx.tellSuccess(msg);
+                },
+                throwable -> ctx.tellFailure(msg, throwable));
+    }
+
+    private JsonObject getMsgData(TbMsg msg) {
         return new JsonParser().parse(msg.getData()).getAsJsonObject();
     }
 
     @Override
     public void destroy() {
 
+    }
+
+    private ListenableFuture<DeviceData> getOrFetchDeviceData(TbContext ctx, EntityId entityId) {
+        DeviceId deviceId = new DeviceId(entityId.getId());
+        DeviceData deviceData = devicesDataMap.get(deviceId);
+        if (deviceData != null) {
+            return Futures.immediateFuture(deviceData);
+        } else {
+            Device device = ctx.getDeviceService().findDeviceById(ctx.getTenantId(), deviceId);
+            return Futures.transform(getState(ctx, deviceId),
+                    state -> new DeviceData(device.getName(), device.getType(), state),
+                    ctx.getDbCallbackExecutor());
+        }
     }
 
     private void scheduleTickMsg(TbContext ctx) {
@@ -182,7 +223,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
                 DataConstants.SERVER_SCOPE, key, value, new VixNodeCallback(ctx, null));
     }
 
-    private ListenableFuture<State> getAttributes(TbContext ctx, DeviceId deviceId) {
+    private ListenableFuture<State> getState(TbContext ctx, DeviceId deviceId) {
         ListenableFuture<List<AttributeKvEntry>> attributesFuture = ctx.getAttributesService()
                 .find(ctx.getTenantId(), deviceId, DataConstants.SERVER_SCOPE, ATTRIBUTES);
         return Futures.transform(attributesFuture, attributes -> {
@@ -195,13 +236,21 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
         }, ctx.getDbCallbackExecutor());
     }
 
-    private ConcurrentMap<String, DeviceData> getDevices(TbContext ctx) {
-        ConcurrentMap<String, DeviceData> map = new ConcurrentHashMap<>();
+    private ConcurrentMap<DeviceId, DeviceData> getDeviceDataMap(TbContext ctx) throws ExecutionException, InterruptedException {
+        ConcurrentMap<DeviceId, DeviceData> map = new ConcurrentHashMap<>();
         PageLink pageLink = new PageLink(ENTITIES_LIMIT);
+        List<ListenableFuture<DeviceData>> futures = new ArrayList<>();
         while (pageLink != null) {
             PageData<Device> page = ctx.getDeviceService().findDevicesByTenantId(ctx.getTenantId(), pageLink);
             pageLink = page.hasNext() ? pageLink.nextPageLink() : null;
-            page.getData().forEach(device -> map.computeIfAbsent(device.getName(), n -> new DeviceData(device.getId(), device.getType())));
+            for (Device device : page.getData()) {
+                futures.add(Futures.transform(getState(ctx, device.getId()),
+                        state -> map.computeIfAbsent(device.getId(), n -> new DeviceData(device.getName(), device.getType(), state)),
+                        ctx.getDbCallbackExecutor()));
+            }
+        }
+        if (!futures.isEmpty()) {
+            Futures.allAsList(futures).get();
         }
         log.info("[{}] Found {} devices for critical inactivity processing!", ctx.getTenantId(), map.size());
         return map;
@@ -242,7 +291,8 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
     @Data
     @AllArgsConstructor
     private static class DeviceData {
-        private DeviceId deviceId;
+        private String deviceName;
         private String deviceType;
+        private State deviceState;
     }
 }
