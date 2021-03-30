@@ -30,6 +30,7 @@ import org.thingsboard.rule.engine.api.TbContext;
 import org.thingsboard.rule.engine.api.TbNode;
 import org.thingsboard.rule.engine.api.TbNodeConfiguration;
 import org.thingsboard.rule.engine.api.TbNodeException;
+import org.thingsboard.rule.engine.api.TbRelationTypes;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.DataConstants;
 import org.thingsboard.server.common.data.Device;
@@ -60,7 +61,6 @@ import java.util.concurrent.TimeUnit;
         type = ComponentType.ANALYTICS,
         name = "vix critical inactivity event",
         configClazz = TbVixCriticalInactivityEventNodeConfiguration.class,
-        relationTypes = {"Success", "CRITICAL_INACTIVITY_EVENT"},
         nodeDescription = "",
         nodeDetails = "",
         uiResources = {"static/rulenode/rulenode-core-config.js"},
@@ -145,7 +145,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
 
                             TbMsg newMsg = null;
                             try {
-                                newMsg = TbMsg.newMsg(CRITICAL_INACTIVITY_ALARM_TIME, entry.getKey(), md, TbMsgDataType.JSON,
+                                newMsg = TbMsg.newMsg(CRITICAL_INACTIVITY_EVENT, entry.getKey(), md, TbMsgDataType.JSON,
                                         JacksonUtil.OBJECT_MAPPER.writeValueAsString(state));
                             } catch (JsonProcessingException e) {
                                 log.warn("[{}] Failed to push critical inactivity event: {}", entry.getKey(), state, e);
@@ -157,7 +157,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
                 ctx.ack(msg);
                 for (TbMsg tempMsg : msgs) {
                     if (tempMsg != null) {
-                        ctx.enqueueForTellNext(tempMsg, CRITICAL_INACTIVITY_EVENT);
+                        ctx.enqueueForTellNext(tempMsg, TbRelationTypes.SUCCESS);
                     }
                 }
                 scheduleTickMsg(ctx);
