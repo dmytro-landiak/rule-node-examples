@@ -102,7 +102,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
         if (msg.getOriginator().getEntityType() != EntityType.DEVICE && !msg.getType().equals(TB_MSG_CUSTOM_NODE_MSG)) {
-            ctx.tellSuccess(msg);
+            ctx.ack(msg);
             return;
         }
 
