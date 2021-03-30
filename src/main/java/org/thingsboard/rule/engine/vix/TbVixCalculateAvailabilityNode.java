@@ -23,6 +23,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 import org.thingsboard.common.util.DonAsynchron;
@@ -713,6 +714,7 @@ public class TbVixCalculateAvailabilityNode implements TbNode {
 
     @Data
     @AllArgsConstructor
+    @NoArgsConstructor
     private static class ActualAvailability {
         private JsonArray actualAvailabilityIntervals;
         private long totalAvailable;
@@ -720,6 +722,7 @@ public class TbVixCalculateAvailabilityNode implements TbNode {
 
     @Data
     @AllArgsConstructor
+    @NoArgsConstructor
     private static class ParentAvailability {
         private ConcurrentMap<String, List<JsonObject>> availabilityEventsByDayMap;
         private Asset parentAsset;
@@ -728,6 +731,7 @@ public class TbVixCalculateAvailabilityNode implements TbNode {
 
     @Data
     @AllArgsConstructor
+    @NoArgsConstructor
     private static class SkippedActualAvailabilityEvents {
         private List<Map.Entry<String, JsonElement>> entriesToSkip;
         private JsonObject updatedActualAvailabilityEventsObj;
