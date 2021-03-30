@@ -81,6 +81,10 @@ import static org.thingsboard.server.common.msg.session.SessionMsgType.POST_ATTR
 )
 public class TbVixOnboardingRuleNode implements TbNode {
 
+    private static final String IP_CREATION = "IP_CREATION";
+    private static final String CLEAR_ALARMS = "CLEAR_ALARMS";
+    private static final String SWAP_NOTIFICATION = "SWAP_NOTIFICATION";
+
     private static final String TRANSIT_TYPE = "transitType";
     private static final String TRANSIT_MODE = "transitMode";
     private static final String NUMBER = "number";
@@ -215,11 +219,11 @@ public class TbVixOnboardingRuleNode implements TbNode {
             TbMsgMetaData metaData = createDeviceMetaData(device);
             metaData.putValue("customerName", config.getCustomerName());
             metaData.putValue(TRANSIT_TYPE, transitType);
-            TbMsg msg = TbMsg.newMsg(DataConstants.IP_CREATION, device.getId(),
+            TbMsg msg = TbMsg.newMsg(IP_CREATION, device.getId(),
                     metaData, JacksonUtil.OBJECT_MAPPER.writeValueAsString(entityNode));
             ctx.enqueueForTellNext(msg, "Ip Creation Event");
         } catch (Exception e) {
-            log.warn("[{}] Failed to push installation point create notification to rule engine: {}", device.getId(), DataConstants.IP_CREATION, e);
+            log.warn("[{}] Failed to push installation point create notification to rule engine: {}", device.getId(), IP_CREATION, e);
         }
     }
 
@@ -343,11 +347,11 @@ public class TbVixOnboardingRuleNode implements TbNode {
     private void pushDeviceSwapEventToRuleEngine(TbContext ctx, Device device, TbMsgMetaData metaData) {
         try {
             ObjectNode entityNode = JacksonUtil.OBJECT_MAPPER.valueToTree(device);
-            TbMsg msg = TbMsg.newMsg(DataConstants.SWAP_NOTIFICATION, device.getId(),
+            TbMsg msg = TbMsg.newMsg(SWAP_NOTIFICATION, device.getId(),
                     metaData, JacksonUtil.OBJECT_MAPPER.writeValueAsString(entityNode));
             ctx.enqueueForTellNext(msg, "Swap Notification");
         } catch (Exception e) {
-            log.warn("[{}] Failed to push device swap notification to rule engine: {}", device.getId(), DataConstants.SWAP_NOTIFICATION, e);
+            log.warn("[{}] Failed to push device swap notification to rule engine: {}", device.getId(), SWAP_NOTIFICATION, e);
         }
     }
 
@@ -387,11 +391,11 @@ public class TbVixOnboardingRuleNode implements TbNode {
     private void pushDeviceClearAlarmsEventToRuleEngine(TbContext ctx, Device device, TbMsgMetaData metaData) {
         try {
             ObjectNode entityNode = JacksonUtil.OBJECT_MAPPER.valueToTree(device);
-            TbMsg msg = TbMsg.newMsg(DataConstants.CLEAR_ALARMS, device.getId(),
+            TbMsg msg = TbMsg.newMsg(CLEAR_ALARMS, device.getId(),
                     metaData, JacksonUtil.OBJECT_MAPPER.writeValueAsString(entityNode));
             ctx.enqueueForTellNext(msg, "Clear Alarms Event");
         } catch (Exception e) {
-            log.warn("[{}] Failed to push device clear alarms notification to rule engine: {}", device.getId(), DataConstants.CLEAR_ALARMS, e);
+            log.warn("[{}] Failed to push device clear alarms notification to rule engine: {}", device.getId(), CLEAR_ALARMS, e);
         }
     }
 
