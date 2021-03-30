@@ -74,7 +74,7 @@ public class TbPrologisAlarmLinkNode implements TbNode {
     private static final String ID_BUILDINGS = "buildings";
     private static final String CREATE_SHORT_URL = "https://d3l24qqaaa9x7b.cloudfront.net/create";
     private static final String LONG_URL = "long_url";
-    private static final String SHORT = "short";
+    private static final String SHORT = "shortened";
     private final static String FAHRENHEIT_SIGN = "F";
     private final static String CELSIUS_SIGN = "C";
     private final static String TEMPERATURE_UNIT = "temperatureUnit";
