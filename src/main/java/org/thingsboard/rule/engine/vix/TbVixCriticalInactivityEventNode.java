@@ -114,8 +114,9 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
             }
             case DataConstants.ENTITY_CREATED: {
                 JsonObject msgData = getMsgData(msg);
-                DonAsynchron.withCallback(getState(ctx, new DeviceId(msg.getOriginator().getId())), state -> {
-                            devicesDataMap.computeIfAbsent(DeviceId.fromString(msgData.get("id").getAsJsonObject().get("id").getAsString()),
+                DeviceId deviceId = new DeviceId(msg.getOriginator().getId());
+                DonAsynchron.withCallback(getState(ctx, deviceId), state -> {
+                            devicesDataMap.computeIfAbsent(deviceId,
                                     n -> new DeviceData(msgData.get("name").getAsString(),
                                             msgData.get("type").getAsString(), state));
                             ctx.ack(msg);
