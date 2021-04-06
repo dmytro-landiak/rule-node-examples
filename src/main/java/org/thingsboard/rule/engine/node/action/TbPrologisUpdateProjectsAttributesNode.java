@@ -208,7 +208,7 @@ public class TbPrologisUpdateProjectsAttributesNode implements TbNode {
                 return deviceGroups
                         .stream()
                         .filter(entityGroup -> !exceptGroupNames.contains(entityGroup.getName())
-                                || !entityGroup.getName().endsWith(DEVICES))
+                                && !entityGroup.getName().endsWith(DEVICES))
                         .collect(Collectors.toList());
             }
             return null;
