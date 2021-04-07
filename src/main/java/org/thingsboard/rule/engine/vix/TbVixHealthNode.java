@@ -100,6 +100,7 @@ public class TbVixHealthNode implements TbNode {
     private static final String FROM_VEHICLE_TO_IP_TYPE = "FromVehicleToInstallationPoint";
     private static final String FROM_AREA_TO_IP_TYPE = "FromAreaToInstallationPoint";
     private static final String FROM_CUSTOMER_TO_TM_TYPE = "FromCustomerToTransitMode";
+    private static final String FROM_TM_TO_IP_TYPE = "FromTransitModeToInstallationPoint";
 
     private final ConcurrentMap<EntityId, EntityContainer> entitiesMap = new ConcurrentHashMap<>();
 
@@ -267,6 +268,7 @@ public class TbVixHealthNode implements TbNode {
         entityTypeFilters.add(createTypeFilter(FROM_DEPOT_TO_AREA_TYPE, Collections.singletonList(EntityType.ASSET)));
         entityTypeFilters.add(createTypeFilter(FROM_AREA_TO_IP_TYPE, Collections.singletonList(EntityType.ASSET)));
         entityTypeFilters.add(createTypeFilter(FROM_CUSTOMER_TO_TM_TYPE, Collections.singletonList(EntityType.CUSTOMER)));
+        entityTypeFilters.add(createTypeFilter(FROM_TM_TO_IP_TYPE, Collections.singletonList(EntityType.ASSET)));
         return entityTypeFilters;
     }
 
@@ -359,7 +361,8 @@ public class TbVixHealthNode implements TbNode {
     }
 
     private VixEntity getEntityType(String relationType) {
-        if (relationType.equals(FROM_TM_TO_FLEET_TYPE) || relationType.equals(FROM_TM_TO_LINE_TYPE) || relationType.equals(FROM_TM_TO_DEPOT_TYPE)) {
+        if (relationType.equals(FROM_TM_TO_FLEET_TYPE) || relationType.equals(FROM_TM_TO_LINE_TYPE)
+                || relationType.equals(FROM_TM_TO_DEPOT_TYPE) || relationType.equals(FROM_TM_TO_IP_TYPE)) {
             return VixEntity.TM;
         } else if (relationType.equals(FROM_CUSTOMER_TO_TM_TYPE)) {
             return VixEntity.CUSTOMER;

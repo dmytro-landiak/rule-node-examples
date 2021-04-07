@@ -97,6 +97,7 @@ public class TbVixOnboardingRuleNode implements TbNode {
     private static final String FROM_TM_TO_FLEET_TYPE = "FromTransitModeToFleet";
     private static final String FROM_TM_TO_LINE_TYPE = "FromTransitModeToLine";
     private static final String FROM_TM_TO_DEPOT_TYPE = "FromTransitModeToDepot";
+    private static final String FROM_TM_TO_IP_TYPE = "FromTransitModeToInstallationPoint";
     private static final String FROM_IP_TO_DEVICE_RELATION = "FromInstallationPointToDevice";
     private static final String FROM_SO_TO_DEVICE_RELATION = "FromSwappedOutToDevice";
 
@@ -287,7 +288,8 @@ public class TbVixOnboardingRuleNode implements TbNode {
                     for (EntityRelation relation : relations) {
                         if (relation.getType().equals(FROM_TM_TO_FLEET_TYPE)
                                 || relation.getType().equals(FROM_TM_TO_LINE_TYPE)
-                                || relation.getType().equals(FROM_TM_TO_DEPOT_TYPE)) {
+                                || relation.getType().equals(FROM_TM_TO_DEPOT_TYPE)
+                                || relation.getType().equals(FROM_TM_TO_IP_TYPE)) {
                             relations.remove(relation);
 
                             ListenableFuture<List<AttributeKvEntry>> transitTypeAttrListFuture = ctx.getAttributesService()
@@ -419,6 +421,7 @@ public class TbVixOnboardingRuleNode implements TbNode {
 
     private List<EntityTypeFilter> constructEntityTypeFilters() {
         List<EntityTypeFilter> entityTypeFilters = new ArrayList<>();
+        entityTypeFilters.add(createTypeFilter(FROM_TM_TO_IP_TYPE, Collections.singletonList(EntityType.ASSET)));
         entityTypeFilters.add(createTypeFilter(FROM_TM_TO_FLEET_TYPE, Collections.singletonList(EntityType.ASSET)));
         entityTypeFilters.add(createTypeFilter(FROM_TM_TO_LINE_TYPE, Collections.singletonList(EntityType.ASSET)));
         entityTypeFilters.add(createTypeFilter(FROM_TM_TO_DEPOT_TYPE, Collections.singletonList(EntityType.ASSET)));
