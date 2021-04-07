@@ -139,9 +139,9 @@ public class TbVixOnboardingRuleNode implements TbNode {
         }
         if (EntityType.DEVICE.equals(msg.getOriginator().getEntityType())
                 && msg.getType().equals(SessionMsgType.POST_ATTRIBUTES_REQUEST.name())) {
-            DonAsynchron.withCallback(processOnBoarding(ctx, msg), b -> {
-                ctx.tellNext(msg, "Post attributes");
-            }, throwable -> ctx.tellFailure(msg, throwable));
+            DonAsynchron.withCallback(processOnBoarding(ctx, msg),
+                    b -> ctx.tellNext(msg, "Post attributes"),
+                    throwable -> ctx.tellFailure(msg, throwable));
         } else if (EntityType.ASSET.equals(msg.getOriginator().getEntityType())
                 && DataConstants.ATTRIBUTES_UPDATED.equals(msg.getType())) {
             Asset asset = ctx.getAssetService().findAssetById(ctx.getTenantId(), AssetId.fromString(msg.getOriginator().getId().toString()));
@@ -320,7 +320,7 @@ public class TbVixOnboardingRuleNode implements TbNode {
     private ListenableFuture<Boolean> saveNewRelation(TbContext ctx, Asset installationPoint, Device device, Device prevDevice,
                                                       String deviceTopologyLocation, String transitType) {
         return Futures.transform(saveRelation(ctx, installationPoint, device), savedRelation -> {
-            if (savedRelation != null && savedRelation) {
+            if (savedRelation != null && savedRelation && prevDevice != null) {
                 TbMsgMetaData metaData = getSwapEventMetaData(installationPoint, device, prevDevice, deviceTopologyLocation, transitType);
                 pushDeviceSwapEventToRuleEngine(ctx, device, metaData);
                 return true;
