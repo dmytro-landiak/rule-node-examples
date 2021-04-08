@@ -21,6 +21,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import org.thingsboard.common.util.DonAsynchron;
 import org.thingsboard.rule.engine.api.EmptyNodeConfiguration;
 import org.thingsboard.rule.engine.api.RuleNode;
@@ -75,8 +76,9 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
     private final static String TEMPERATURE_UNIT = "temperatureUnit";
     private final static String EMAIL_NOTIFICATION = "email";
     private final static String SMS_NOTIFICATION = "sms";
-    private final static String ALL_NOTIFICATION = "all";
     private final static String FAHRENHEIT_SIGN = "F";
+    private final static String NONE = "none";
+    private final static String WHATSAPP_NOTIFICATION = "whatsapp";
 
     private final static List<String> ATTRIBUTES = Arrays.asList(NOTIFICATION_TYPE, MOBILE_PHONE_NUMBER, TEMPERATURE_UNIT);
 
@@ -91,8 +93,7 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) {
-        EntityRelationsQuery entityRelationsQuery = getEntityRelationsQuery(msg.getOriginator());
-        ListenableFuture<List<EntityRelation>> future = ctx.getRelationService().findByQuery(ctx.getTenantId(), entityRelationsQuery);
+        ListenableFuture<List<EntityRelation>> future = ctx.getRelationService().findByQuery(ctx.getTenantId(), getEntityRelationsQuery(msg.getOriginator()));
         ListenableFuture<List<TbMsg>> messagesFuture = Futures.transformAsync(future, entityRelations -> {
             if (!CollectionUtils.isEmpty(entityRelations)) {
                 if (prologis != null) {
@@ -152,6 +153,10 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
                                     metaData.putValue("mobilePhoneNumbers", sourcesOfCommunications);
                                     messages.add(TbMsg.newMsg(SMS_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
                                     break;
+                                case WHATSAPP_NOTIFICATION:
+                                    metaData.putValue("mobilePhoneNumbers", sourcesOfCommunications);
+                                    messages.add(TbMsg.newMsg(WHATSAPP_NOTIFICATION, msg.getOriginator(), metaData, msg.getData()));
+                                    break;
                             }
                         }
                     }
@@ -174,18 +179,26 @@ public class TbPrologisUserEmailsAndMobileNumbersNode implements TbNode {
                 String fullName = user.getFirstName() + " " + user.getLastName();
                 String temperatureUnit = attributesMap.getOrDefault(TEMPERATURE_UNIT, FAHRENHEIT_SIGN);
                 String mobileNumber = attributesMap.get(MOBILE_PHONE_NUMBER);
-                if (notificationType != null) {
-                    switch (notificationType) {
-                        case EMAIL_NOTIFICATION:
-                            return Collections.singletonList(new UserData(fullName, EMAIL_NOTIFICATION, user.getEmail(), temperatureUnit));
-                        case SMS_NOTIFICATION:
-                            return Collections.singletonList(new UserData(fullName, SMS_NOTIFICATION, mobileNumber, temperatureUnit));
-                        case ALL_NOTIFICATION:
-                            return Arrays.asList(new UserData(fullName, EMAIL_NOTIFICATION, user.getEmail(), temperatureUnit),
-                                    new UserData(fullName, SMS_NOTIFICATION, mobileNumber, temperatureUnit));
-                        default:
-                            log.warn("User with email = {} doesn't have valid notification type[{}]", user.getEmail(), notificationType);
+                if (!StringUtils.isEmpty(notificationType)) {
+                    List<UserData> userDataList = new ArrayList<>();
+                    for (String tempNotificationType : notificationType.replaceAll(" ", "").split(",")) {
+                        switch (tempNotificationType) {
+                            case EMAIL_NOTIFICATION:
+                                userDataList.add(new UserData(fullName, EMAIL_NOTIFICATION, user.getEmail(), temperatureUnit));
+                                break;
+                            case SMS_NOTIFICATION:
+                                userDataList.add(new UserData(fullName, SMS_NOTIFICATION, mobileNumber, temperatureUnit));
+                                break;
+                            case WHATSAPP_NOTIFICATION:
+                                userDataList.add(new UserData(fullName, WHATSAPP_NOTIFICATION, mobileNumber, temperatureUnit));
+                                break;
+                            case NONE:
+                                break;
+                            default:
+                                log.warn("User with email = {} doesn't have valid notification type[{}]", user.getEmail(), notificationType);
+                        }
                     }
+                    return userDataList;
                 } else {
                     log.warn("User with email = {} doesn't have notificationType attribute", user.getEmail());
                 }
