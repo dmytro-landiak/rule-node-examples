@@ -15,8 +15,13 @@
  */
 package org.thingsboard.rule.engine.node.transformation;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import lombok.extern.slf4j.Slf4j;
 import org.thingsboard.common.util.DonAsynchron;
 import org.thingsboard.rule.engine.api.EmptyNodeConfiguration;
@@ -53,26 +58,35 @@ public class TbPrologisLatestAlarmNode implements TbNode {
 
     private EmptyNodeConfiguration config;
     private Gson gson;
-
-    private static final String ALARM_TYPE_SUFFIX = " Alarm";
+    private ObjectMapper mapper;
+    private JsonParser jsonParser;
 
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
         this.config = TbNodeUtils.convert(configuration, EmptyNodeConfiguration.class);
         this.gson = new Gson();
+        this.mapper = new ObjectMapper();
+        this.jsonParser = new JsonParser();
     }
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
         ListenableFuture<Alarm> alarmListenableFuture = ctx.getAlarmService()
                 .findLatestByOriginatorAndType(ctx.getTenantId(), msg.getOriginator(),
-                        msg.getMetaData().getValue("alarmType") + ALARM_TYPE_SUFFIX);
+                        msg.getMetaData().getValue("alarmType"));
         DonAsynchron.withCallback(alarmListenableFuture, alarm -> {
             if (alarm == null || alarm.getStatus().isCleared()) {
                 ctx.tellNext(msg, "Not Found");
             } else {
+                JsonObject alarmJson = gson.toJsonTree(alarm).getAsJsonObject();
+                try {
+                    alarmJson.add("details", jsonParser.parse(mapper.writeValueAsString(alarm.getDetails())));
+                } catch (JsonProcessingException e) {
+                    ctx.tellFailure(msg, e);
+                    return;
+                }
                 ctx.ack(msg);
-                ctx.enqueueForTellNext(TbMsg.newMsg(msg.getType(), msg.getOriginator(), msg.getMetaData(), gson.toJson(alarm)), SUCCESS);
+                ctx.enqueueForTellNext(TbMsg.newMsg(msg.getType(), msg.getOriginator(), msg.getMetaData(), gson.toJson(alarmJson)), SUCCESS);
             }
         }, throwable -> ctx.tellFailure(msg, throwable));
     }
