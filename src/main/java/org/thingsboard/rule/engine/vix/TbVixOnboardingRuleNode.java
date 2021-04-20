@@ -322,7 +322,7 @@ public class TbVixOnboardingRuleNode implements TbNode {
     private ListenableFuture<Boolean> saveNewRelation(TbContext ctx, Asset installationPoint, Device device, Device prevDevice,
                                                       String deviceTopologyLocation, String transitType) {
         return Futures.transform(saveRelation(ctx, installationPoint, device), savedRelation -> {
-            if (savedRelation != null && savedRelation && prevDevice != null) {
+            if (savedRelation != null && savedRelation) {
                 TbMsgMetaData metaData = getSwapEventMetaData(installationPoint, device, prevDevice, deviceTopologyLocation, transitType);
                 pushDeviceSwapEventToRuleEngine(ctx, device, metaData);
                 return true;
