@@ -119,6 +119,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
                             devicesDataMap.computeIfAbsent(deviceId,
                                     n -> new DeviceData(msgData.get("name").getAsString(),
                                             msgData.get("type").getAsString(), state));
+                            log.info("[{}][{}] Added device to critical inactivity map processing!", ctx.getTenantId(), deviceId);
                             ctx.ack(msg);
                         },
                         throwable -> ctx.tellFailure(msg, throwable));
@@ -126,6 +127,7 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
             }
             case DataConstants.ENTITY_DELETED: {
                 devicesDataMap.remove(new DeviceId(msg.getOriginator().getId()));
+                log.info("[{}][{}] Removed device from critical inactivity map processing!", ctx.getTenantId(), msg.getOriginator().getId());
                 ctx.ack(msg);
                 break;
             }
