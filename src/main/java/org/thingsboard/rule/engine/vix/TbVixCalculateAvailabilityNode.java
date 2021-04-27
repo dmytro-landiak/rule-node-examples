@@ -49,7 +49,7 @@ import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.data.relation.EntityRelation;
 import org.thingsboard.server.common.data.relation.EntityRelationsQuery;
 import org.thingsboard.server.common.data.relation.EntitySearchDirection;
-import org.thingsboard.server.common.data.relation.EntityTypeFilter;
+import org.thingsboard.server.common.data.relation.RelationEntityTypeFilter;
 import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
 import org.thingsboard.server.common.msg.TbMsgMetaData;
@@ -151,7 +151,8 @@ public class TbVixCalculateAvailabilityNode implements TbNode {
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
         if (msg.getType().equals(TB_MSG_CUSTOM_NODE_MSG)) {
             ctx.enqueueForTellNext(msg, "HighPriority", TbRelationTypes.SUCCESS,
-                    () -> {},
+                    () -> {
+                    },
                     throwable -> ctx.tellFailure(msg, throwable));
         } else {
             ctx.tellFailure(msg, new RuntimeException("Wrong message came!"));
@@ -634,15 +635,15 @@ public class TbVixCalculateAvailabilityNode implements TbNode {
         return query;
     }
 
-    private List<EntityTypeFilter> constructEntityTypeFilters() {
-        List<EntityTypeFilter> entityTypeFilters = new ArrayList<>();
+    private List<RelationEntityTypeFilter> constructEntityTypeFilters() {
+        List<RelationEntityTypeFilter> entityTypeFilters = new ArrayList<>();
         entityTypeFilters.add(createTypeFilter(FROM_STATION_TO_IP_TYPE, Collections.singletonList(EntityType.ASSET)));
         entityTypeFilters.add(createTypeFilter(FROM_VEHICLE_TO_IP_TYPE, Collections.singletonList(EntityType.ASSET)));
         return entityTypeFilters;
     }
 
-    private EntityTypeFilter createTypeFilter(String relationType, List<EntityType> entityTypes) {
-        return new EntityTypeFilter(relationType, entityTypes);
+    private RelationEntityTypeFilter createTypeFilter(String relationType, List<EntityType> entityTypes) {
+        return new RelationEntityTypeFilter(relationType, entityTypes);
     }
 
     private ListenableFuture<List<AttributeKvEntry>> findAttributes(TbContext ctx, EntityId entityId, String key) {

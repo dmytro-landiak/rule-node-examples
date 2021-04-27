@@ -39,7 +39,7 @@ import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.data.relation.EntityRelation;
 import org.thingsboard.server.common.data.relation.EntityRelationsQuery;
 import org.thingsboard.server.common.data.relation.EntitySearchDirection;
-import org.thingsboard.server.common.data.relation.EntityTypeFilter;
+import org.thingsboard.server.common.data.relation.RelationEntityTypeFilter;
 import org.thingsboard.server.common.data.relation.RelationTypeGroup;
 import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
@@ -161,14 +161,14 @@ public class TbVixSwappedOutCalculationNode implements TbNode {
         return query;
     }
 
-    private List<EntityTypeFilter> constructEntityTypeFilters() {
-        List<EntityTypeFilter> entityTypeFilters = new ArrayList<>();
+    private List<RelationEntityTypeFilter> constructEntityTypeFilters() {
+        List<RelationEntityTypeFilter> entityTypeFilters = new ArrayList<>();
         entityTypeFilters.add(createTypeFilter(FROM_TM_TO_SO_RELATION, Collections.singletonList(EntityType.ASSET)));
         entityTypeFilters.add(createTypeFilter(FROM_CUSTOMER_TO_TM_TYPE, Collections.singletonList(EntityType.CUSTOMER)));
         return entityTypeFilters;
     }
 
-    private EntityTypeFilter createTypeFilter(String relationType, List<EntityType> entityTypes) {
-        return new EntityTypeFilter(relationType, entityTypes);
+    private RelationEntityTypeFilter createTypeFilter(String relationType, List<EntityType> entityTypes) {
+        return new RelationEntityTypeFilter(relationType, entityTypes);
     }
 }

@@ -43,7 +43,7 @@ import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.data.relation.EntityRelation;
 import org.thingsboard.server.common.data.relation.EntityRelationsQuery;
 import org.thingsboard.server.common.data.relation.EntitySearchDirection;
-import org.thingsboard.server.common.data.relation.EntityTypeFilter;
+import org.thingsboard.server.common.data.relation.RelationEntityTypeFilter;
 import org.thingsboard.server.common.data.relation.RelationTypeGroup;
 import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
@@ -256,8 +256,8 @@ public class TbVixHealthNode implements TbNode {
         return query;
     }
 
-    private List<EntityTypeFilter> constructEntityTypeFilters() {
-        List<EntityTypeFilter> entityTypeFilters = new ArrayList<>();
+    private List<RelationEntityTypeFilter> constructEntityTypeFilters() {
+        List<RelationEntityTypeFilter> entityTypeFilters = new ArrayList<>();
         entityTypeFilters.add(createTypeFilter(FROM_LINE_TO_STATION_TYPE, Collections.singletonList(EntityType.ASSET)));
         entityTypeFilters.add(createTypeFilter(FROM_FLEET_TO_VEHICLE_TYPE, Collections.singletonList(EntityType.ASSET)));
         entityTypeFilters.add(createTypeFilter(FROM_TM_TO_FLEET_TYPE, Collections.singletonList(EntityType.ASSET)));
@@ -272,8 +272,8 @@ public class TbVixHealthNode implements TbNode {
         return entityTypeFilters;
     }
 
-    private EntityTypeFilter createTypeFilter(String relationType, List<EntityType> entityTypes) {
-        return new EntityTypeFilter(relationType, entityTypes);
+    private RelationEntityTypeFilter createTypeFilter(String relationType, List<EntityType> entityTypes) {
+        return new RelationEntityTypeFilter(relationType, entityTypes);
     }
 
     private ListenableFuture<Void> processCountForDevices(TbContext ctx, AtomicLong offlineCount, AtomicLong criticalCount,
