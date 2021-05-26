@@ -96,8 +96,8 @@ public class TbPrologisAggregationNode implements TbNode {
     private static final String SERVICE_ID = "tb-node-0";
 
     private static final int ENTITIES_LIMIT = 100;
-    private static final int TELEMETRY_LIMIT = 1440;
-    private static final long ONE_DAY_MS = 24 * 3600 * 1000;
+    private static final int TELEMETRY_LIMIT = 1000;
+    private static final long ONE_HOUR_MS = 3600 * 1000;
 
     private ScheduledExecutorService scheduledExecutor;
     private TbPrologisAggregationNodeConfiguration config;
@@ -112,10 +112,10 @@ public class TbPrologisAggregationNode implements TbNode {
 
         if (currTsMs <= configTsMs) {
             scheduledExecutor.scheduleAtFixedRate(() -> runTask(ctx),
-                    configTsMs - currTsMs, ONE_DAY_MS, TimeUnit.MILLISECONDS);
+                    configTsMs - currTsMs, ONE_HOUR_MS, TimeUnit.MILLISECONDS);
         } else {
             scheduledExecutor.scheduleAtFixedRate(() -> runTask(ctx),
-                    getInitDelayMs(currTsMs, configTsMs), ONE_DAY_MS, TimeUnit.MILLISECONDS);
+                    getInitDelayMs(currTsMs, configTsMs), ONE_HOUR_MS, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -124,12 +124,12 @@ public class TbPrologisAggregationNode implements TbNode {
         if (diff < 0) {
             return Math.abs(diff);
         }
-        return ONE_DAY_MS - diff;
+        return ONE_HOUR_MS - diff;
     }
 
     private long getMillisForTime(long unixTimestampInMillis) {
         LocalDateTime ldt = LocalDateTime.ofInstant(Instant.ofEpochMilli(unixTimestampInMillis), ZoneId.systemDefault());
-        return (ldt.getHour() * 3600 + ldt.getMinute() * 60 + ldt.getSecond()) * 1000;
+        return (ldt.getMinute() * 60 + ldt.getSecond()) * 1000;
     }
 
     private long getTimeOfExecution() {
@@ -156,9 +156,10 @@ public class TbPrologisAggregationNode implements TbNode {
         if (!ctx.getServiceId().equals(SERVICE_ID)) {
             return;
         }
-        LocalDateTime startOfTheCurrentDay = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(ZoneId.systemDefault()).toLocalDate().atStartOfDay();
-        long endTs = startOfTheCurrentDay.atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
-        long startTs = startOfTheCurrentDay.minusDays(1).atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
+        LocalDateTime currentDateTime = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(ZoneId.systemDefault()).toLocalDateTime();
+        long tsAtStartOfDay = currentDateTime.toLocalDate().atStartOfDay().atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
+        long startTs = (currentDateTime.getHour() - 1) * 3600 * 1000 + tsAtStartOfDay;
+        long endTs = currentDateTime.getHour() * 3600 * 1000 + tsAtStartOfDay;
         log.info("[{}][{}] Started calculating averages...", startTs, endTs);
 
         ListenableFuture<Void> resultFuture = Futures.transformAsync(getProjects(ctx), projects -> {
@@ -226,7 +227,6 @@ public class TbPrologisAggregationNode implements TbNode {
         for (Device targetDevice : targetDevices) {
             devicesAvgFuture.add(Futures.transform(getAvg(ctx, targetDevice, key, startTs, endTs), tsKvEntries -> {
                 if (!CollectionUtils.isEmpty(tsKvEntries)) {
-                    log.info("[{}][{}] Calculated average {}", targetDevice.getName(), key, tsKvEntries);
                     return getDeviceAvg(targetDevice, tsKvEntries);
                 } else {
                     log.info("[{}][{}] Did not find calculated average!", targetDevice.getName(), key);
@@ -259,7 +259,7 @@ public class TbPrologisAggregationNode implements TbNode {
                 ctx.getTenantId(),
                 device.getId(),
                 Collections.singletonList(
-                        new BaseReadTsKvQuery(key, startTs, endTs, ONE_DAY_MS, TELEMETRY_LIMIT, Aggregation.AVG, SortOrder.Direction.DESC.name())));
+                        new BaseReadTsKvQuery(key, startTs, endTs, ONE_HOUR_MS, TELEMETRY_LIMIT, Aggregation.AVG, SortOrder.Direction.DESC.name())));
     }
 
     private ListenableFuture<List<Device>> getTargetDevices(TbContext ctx, List<Device> devices) {
@@ -306,15 +306,7 @@ public class TbPrologisAggregationNode implements TbNode {
                 return Futures.transformAsync(entitiesFuture, entityIds -> {
                     if (!CollectionUtils.isEmpty(entityIds)) {
                         log.info("Found {} projects in group!", entityIds.size());
-                        ListenableFuture<List<Asset>> assetsFuture = ctx.getAssetService()
-                                .findAssetsByTenantIdAndIdsAsync(ctx.getTenantId(), getAssetIds(entityIds));
-                        return Futures.transform(assetsFuture, assets -> {
-                            if (!CollectionUtils.isEmpty(assets)) {
-                                return assets.stream()
-                                        .filter(asset -> asset.getName().equals("Mechie Trommelenweg Waalwijk, Netherlands")).collect(Collectors.toList());
-                            }
-                            return null;
-                        }, ctx.getDbCallbackExecutor());
+                        return ctx.getAssetService().findAssetsByTenantIdAndIdsAsync(ctx.getTenantId(), getAssetIds(entityIds));
                     }
                     return Futures.immediateFuture(null);
                 }, ctx.getDbCallbackExecutor());
