@@ -43,6 +43,7 @@ import org.thingsboard.server.common.data.kv.Aggregation;
 import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 import org.thingsboard.server.common.data.kv.BaseReadTsKvQuery;
 import org.thingsboard.server.common.data.kv.BasicTsKvEntry;
+import org.thingsboard.server.common.data.kv.DataType;
 import org.thingsboard.server.common.data.kv.JsonDataEntry;
 import org.thingsboard.server.common.data.kv.TsKvEntry;
 import org.thingsboard.server.common.data.page.PageLink;
@@ -92,6 +93,7 @@ public class TbPrologisAggregationNode implements TbNode {
     private static final String IS_IN_SPACE = "IS_IN_SPACE";
     private static final String COLUMN_NAME_ATTR = "columnName";
     private static final String KEY_ENDING = "AvgHeatMap";
+    private static final String SERVICE_ID = "tb-node-0";
 
     private static final int ENTITIES_LIMIT = 100;
     private static final int TELEMETRY_LIMIT = 1440;
@@ -151,10 +153,13 @@ public class TbPrologisAggregationNode implements TbNode {
     }
 
     private void runTask(TbContext ctx) {
-        log.info("Started calculating averages...");
+        if (!ctx.getServiceId().equals(SERVICE_ID)) {
+            return;
+        }
         LocalDateTime startOfTheCurrentDay = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(ZoneId.systemDefault()).toLocalDate().atStartOfDay();
         long endTs = startOfTheCurrentDay.atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
         long startTs = startOfTheCurrentDay.minusDays(1).atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
+        log.info("[{}][{}] Started calculating averages...", startTs, endTs);
 
         ListenableFuture<Void> resultFuture = Futures.transformAsync(getProjects(ctx), projects -> {
             List<ListenableFuture<List<Void>>> resultFutures = new ArrayList<>();
@@ -170,13 +175,17 @@ public class TbPrologisAggregationNode implements TbNode {
 
                                     List<ListenableFuture<Void>> futures = new ArrayList<>();
                                     for (String key : keys) {
+                                        log.info("[{}] Started calculation for key {}!", project.getName(), key);
                                         futures.add(Futures.transform(getDeviceAvgs(ctx, targetDevices, key, startTs, endTs), deviceAvgs -> {
                                             if (!CollectionUtils.isEmpty(deviceAvgs)) {
+                                                log.info("[{}][{}] Found {} device averages for project!", project.getName(), key, deviceAvgs.size());
                                                 JsonObject jo = new JsonObject();
                                                 for (DeviceAvg deviceAvg : deviceAvgs) {
                                                     jo.addProperty(deviceAvg.getDeviceId().toString(), deviceAvg.getValue());
                                                 }
                                                 saveTelemetry(ctx, project, endTs, key, jo);
+                                            } else {
+                                                log.info("[{}][{}] Did not find device averages for project!", project.getName(), key);
                                             }
                                             return null;
                                         }, ctx.getDbCallbackExecutor()));
@@ -200,6 +209,7 @@ public class TbPrologisAggregationNode implements TbNode {
     }
 
     private void saveTelemetry(TbContext ctx, Asset project, long ts, String key, JsonObject jo) {
+        log.info("[{}] Trying to save {}!", project.getName(), key);
         ctx.getTelemetryService().saveAndNotify(
                 ctx.getTenantId(),
                 project.getId(),
@@ -216,10 +226,10 @@ public class TbPrologisAggregationNode implements TbNode {
         for (Device targetDevice : targetDevices) {
             devicesAvgFuture.add(Futures.transform(getAvg(ctx, targetDevice, key, startTs, endTs), tsKvEntries -> {
                 if (!CollectionUtils.isEmpty(tsKvEntries)) {
-                    Optional<Long> longOpt = tsKvEntries.get(0).getLongValue();
-                    if (longOpt.isPresent()) {
-                        return new DeviceAvg(targetDevice.getId(), longOpt.get());
-                    }
+                    log.info("[{}][{}] Calculated average {}", targetDevice.getName(), key, tsKvEntries);
+                    return getDeviceAvg(targetDevice, tsKvEntries);
+                } else {
+                    log.info("[{}][{}] Did not find calculated average!", targetDevice.getName(), key);
                 }
                 return null;
             }, ctx.getDbCallbackExecutor()));
@@ -230,6 +240,18 @@ public class TbPrologisAggregationNode implements TbNode {
             }
             return null;
         }, ctx.getDbCallbackExecutor());
+    }
+
+    private DeviceAvg getDeviceAvg(Device targetDevice, List<TsKvEntry> tsKvEntries) {
+        TsKvEntry entry = tsKvEntries.get(0);
+        if (entry.getDataType().equals(DataType.DOUBLE) && entry.getDoubleValue().isPresent()) {
+            return new DeviceAvg(targetDevice.getId(), entry.getDoubleValue().get());
+        } else if (entry.getDataType().equals(DataType.LONG) && entry.getLongValue().isPresent()) {
+            return new DeviceAvg(targetDevice.getId(), entry.getLongValue().get());
+        } else {
+            log.warn("[{}][{}] Unknown data type result for average!", targetDevice.getName(), entry.getKey());
+        }
+        return null;
     }
 
     private ListenableFuture<List<TsKvEntry>> getAvg(TbContext ctx, Device device, String key, long startTs, long endTs) {
@@ -320,7 +342,7 @@ public class TbPrologisAggregationNode implements TbNode {
     @Data
     private static class DeviceAvg {
         private final DeviceId deviceId;
-        private final long value;
+        private final double value;
     }
 
     @Data
