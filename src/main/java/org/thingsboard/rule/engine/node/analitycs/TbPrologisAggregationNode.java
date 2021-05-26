@@ -91,7 +91,6 @@ public class TbPrologisAggregationNode implements TbNode {
     private static final String DATA_DEVICE_TYPE = "DATA_DEVICE";
     private static final String IS_IN_SPACE = "IS_IN_SPACE";
     private static final String COLUMN_NAME_ATTR = "columnName";
-    private static final String UTC = "UTC";
     private static final String KEY_ENDING = "AvgHeatMap";
 
     private static final int ENTITIES_LIMIT = 100;
@@ -153,9 +152,9 @@ public class TbPrologisAggregationNode implements TbNode {
 
     private void runTask(TbContext ctx) {
         log.info("Started calculating averages...");
-        LocalDateTime startOfTheCurrentDay = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(ZoneId.of(UTC)).toLocalDate().atStartOfDay();
-        long endTs = startOfTheCurrentDay.atZone(ZoneId.of(UTC)).toEpochSecond() * 1000;
-        long startTs = startOfTheCurrentDay.minusDays(1).atZone(ZoneId.of(UTC)).toEpochSecond() * 1000;
+        LocalDateTime startOfTheCurrentDay = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(ZoneId.systemDefault()).toLocalDate().atStartOfDay();
+        long endTs = startOfTheCurrentDay.atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
+        long startTs = startOfTheCurrentDay.minusDays(1).atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
 
         ListenableFuture<Void> resultFuture = Futures.transformAsync(getProjects(ctx), projects -> {
             List<ListenableFuture<List<Void>>> resultFutures = new ArrayList<>();
@@ -188,7 +187,7 @@ public class TbPrologisAggregationNode implements TbNode {
                             }, ctx.getDbCallbackExecutor());
                         }
                         log.warn("[{}] Did not find any device for project!", project.getName());
-                        return null;
+                        return Futures.immediateFuture(null);
                     }, ctx.getDbCallbackExecutor()));
                 }
             }
@@ -209,8 +208,7 @@ public class TbPrologisAggregationNode implements TbNode {
     }
 
     private String getKey(String key) {
-        String keyToSave = key.toLowerCase().replace("_value", KEY_ENDING);
-        return keyToSave;
+        return key.toLowerCase().replace("_value", KEY_ENDING);
     }
 
     private ListenableFuture<List<DeviceAvg>> getDeviceAvgs(TbContext ctx, List<Device> targetDevices, String key, long startTs, long endTs) {
