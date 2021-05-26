@@ -214,7 +214,7 @@ public class TbPrologisAggregationNode implements TbNode {
                 ctx.getTenantId(),
                 project.getId(),
                 Collections.singletonList(new BasicTsKvEntry(ts, new JsonDataEntry(getKey(key), jo.toString()))),
-                new TelemetryNodeCallback(project.getName()));
+                new TelemetryNodeCallback(project.getName(), key));
     }
 
     private String getKey(String key) {
@@ -348,15 +348,16 @@ public class TbPrologisAggregationNode implements TbNode {
     @Data
     private static class TelemetryNodeCallback implements FutureCallback<Void> {
         private final String building;
+        private final String key;
 
         @Override
         public void onSuccess(@Nullable Void result) {
-            log.info("[{}] Saved avg values for building!", building);
+            log.info("[{}][{}] Saved avg values for building!", building, key);
         }
 
         @Override
         public void onFailure(Throwable throwable) {
-            log.error("[{}] Failed to save avg values for building!", building, throwable);
+            log.error("[{}][{}] Failed to save avg values for building!", building, key, throwable);
         }
     }
 }
