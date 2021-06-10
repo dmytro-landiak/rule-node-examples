@@ -59,7 +59,7 @@ import java.util.stream.Collectors;
         nodeDescription = "",
         nodeDetails = "",
         uiResources = {"static/rulenode/rulenode-core-config.js"},
-        configDirective = "tbPrologisCreateRelationsNodeConfig")
+        configDirective = "tbNodeEmptyConfig")
 public class TbPrologisCreateRelationsNode implements TbNode {
 
     private static final String DOCK_PROJECTS_GROUP_NAME = "DockProjects";
