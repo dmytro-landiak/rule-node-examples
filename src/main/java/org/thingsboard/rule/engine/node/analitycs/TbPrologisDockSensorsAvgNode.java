@@ -50,6 +50,8 @@ import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
 
 import javax.annotation.Nullable;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
@@ -239,7 +241,7 @@ public class TbPrologisDockSensorsAvgNode implements TbNode {
     private DeviceAvg getDeviceAvg(Device targetDevice, List<TsKvEntry> tsKvEntries) {
         TsKvEntry entry = tsKvEntries.get(0);
         if (entry.getDataType().equals(DataType.DOUBLE) && entry.getDoubleValue().isPresent()) {
-            return new DeviceAvg(targetDevice, entry.getDoubleValue().get());
+            return new DeviceAvg(targetDevice, new BigDecimal(entry.getDoubleValue().get()).setScale(2, RoundingMode.HALF_UP).doubleValue());
         } else if (entry.getDataType().equals(DataType.LONG) && entry.getLongValue().isPresent()) {
             return new DeviceAvg(targetDevice, entry.getLongValue().get());
         } else {
