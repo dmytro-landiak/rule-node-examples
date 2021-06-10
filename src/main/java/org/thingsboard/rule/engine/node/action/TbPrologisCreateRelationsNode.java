@@ -58,12 +58,11 @@ import java.util.stream.Collectors;
         configClazz = EmptyNodeConfiguration.class,
         nodeDescription = "",
         nodeDetails = "",
-        uiResources = {"static/rulenode/custom-nodes-config.js"},
+        uiResources = {"static/rulenode/rulenode-core-config.js"},
         configDirective = "tbPrologisCreateRelationsNodeConfig")
 public class TbPrologisCreateRelationsNode implements TbNode {
 
     private static final String DOCK_PROJECTS_GROUP_NAME = "DockProjects";
-
     private static final List<String> KEYS = Arrays.asList("LIGHT_VALUE", "VIBRATION_ENERGY_LEVEL_VALUE", "PRESENCE_MOVE_COUNT_VALUE", "NOISE_VALUE");
 
     private EmptyNodeConfiguration config;
@@ -122,18 +121,16 @@ public class TbPrologisCreateRelationsNode implements TbNode {
                     createRelationsFuturesList.add(Futures.transformAsync(getTelemetryKeys(ctx, device.getId()), keys -> {
                         List<ListenableFuture<Boolean>> createRelationFutures = new ArrayList<>();
                         for (String key : KEYS.stream().filter(keys::contains).collect(Collectors.toList())) {
-                            EntityRelation relation = getEntityRelation(asset.getId(), device.getId(), key);
                             createRelationFutures.add(Futures.transform(ctx.getRelationService().
-                                    saveRelationAsync(ctx.getTenantId(), relation), b -> {
+                                    saveRelationAsync(ctx.getTenantId(), getEntityRelation(asset.getId(), device.getId(), key)), b -> {
                                 if (b == null || !b) {
-                                    log.warn("Failed to create relation {}", relation);
+                                    log.warn("[{}][{}] Failed to create relation by key {}!", asset.getName(), device.getName(), key);
                                 }
                                 return b;
                             }, ctx.getDbCallbackExecutor()));
                         }
                         return Futures.allAsList(createRelationFutures);
                     }, ctx.getDbCallbackExecutor()));
-
                 }
             }
             return Futures.transform(Futures.allAsList(createRelationsFuturesList), res -> {
