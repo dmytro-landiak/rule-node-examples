@@ -45,6 +45,7 @@ import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.msg.TbMsg;
 import org.thingsboard.server.common.msg.TbMsgDataType;
 import org.thingsboard.server.common.msg.TbMsgMetaData;
+import org.thingsboard.server.common.msg.queue.PartitionChangeMsg;
 import org.thingsboard.server.common.msg.queue.ServiceQueue;
 
 import java.util.ArrayList;
@@ -97,6 +98,13 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
             throw new TbNodeException(e);
         }
         scheduleTickMsg(ctx);
+    }
+
+    @Override
+    public void onPartitionChangeMsg(TbContext ctx, PartitionChangeMsg msg) {
+        // Cleanup the cache for all entities that are no longer assigned to current server partitions
+        devicesDataMap.entrySet().removeIf(entry -> !ctx.isLocalEntity(entry.getKey()));
+        log.info("[{}] Fixing cache for critical inactivity processing after partition change msg!", ctx.getTenantId());
     }
 
     @Override
@@ -247,6 +255,9 @@ public class TbVixCriticalInactivityEventNode implements TbNode {
             PageData<Device> page = ctx.getDeviceService().findDevicesByTenantId(ctx.getTenantId(), pageLink);
             pageLink = page.hasNext() ? pageLink.nextPageLink() : null;
             for (Device device : page.getData()) {
+                if (!ctx.isLocalEntity(device.getId())) {
+                    continue;
+                }
                 futures.add(Futures.transform(getState(ctx, device.getId()),
                         state -> map.computeIfAbsent(device.getId(), n -> new DeviceData(device.getName(), device.getType(), state)),
                         ctx.getDbCallbackExecutor()));
