@@ -49,7 +49,10 @@ import org.thingsboard.server.common.data.kv.TsKvEntry;
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.page.SortOrder;
 import org.thingsboard.server.common.data.plugin.ComponentType;
+import org.thingsboard.server.common.data.relation.EntityRelation;
+import org.thingsboard.server.common.data.relation.EntityRelationsQuery;
 import org.thingsboard.server.common.data.relation.EntitySearchDirection;
+import org.thingsboard.server.common.data.relation.EntityTypeFilter;
 import org.thingsboard.server.common.data.relation.RelationsSearchParameters;
 import org.thingsboard.server.common.msg.TbMsg;
 
@@ -65,6 +68,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -85,7 +89,8 @@ import java.util.stream.Collectors;
 public class TbPrologisAggregationNode implements TbNode {
 
     private static final SimpleDateFormat defaultDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-    private static final List<String> keys = new ArrayList<>(Arrays.asList("TEMPERATURE_VALUE", "HUMIDITY_VALUE", "AIRPRESSURE_VALUE", "LIGHT_VALUE"));
+    private static final List<String> keys = new ArrayList<>(Arrays.asList("TEMPERATURE_VALUE", "HUMIDITY_VALUE", "AIRPRESSURE_VALUE",
+            "LIGHT_VALUE", "VIBRATION_ENERGY_LEVEL_VALUE", "NOISE_VALUE", "PRESENCE_MOVE_COUNT_VALUE"));
 
     private static final String TB_MSG_CUSTOM_NODE_MSG = "TbMsgCustomNodeMsg";
     private static final String DOCK_PROJECTS = "DockProjects";
@@ -209,6 +214,18 @@ public class TbPrologisAggregationNode implements TbNode {
                 throwable -> log.error("Failed to calculate averages...", throwable));
     }
 
+    private ListenableFuture<Set<Device>> getTargetDevices(TbContext ctx, List<Device> devices) {
+        ListenableFuture<List<Device>> targetDevicesByAttrFuture = getTargetDevicesByAttr(ctx, devices);
+        ListenableFuture<List<Device>> targetDevicesByRelationsFuture = getTargetDevicesByRelations(ctx, devices);
+
+        return Futures.transform(Futures.allAsList(targetDevicesByAttrFuture, targetDevicesByRelationsFuture), targetDevicesLists -> {
+            if (!CollectionUtils.isEmpty(targetDevicesLists)) {
+                return targetDevicesLists.stream().flatMap(List::stream).collect(Collectors.toSet());
+            }
+            return null;
+        }, ctx.getDbCallbackExecutor());
+    }
+
     private void saveTelemetry(TbContext ctx, Asset project, long ts, String key, JsonObject jo) {
         log.info("[{}] Trying to save {}!", project.getName(), key);
         ctx.getTelemetryService().saveAndNotify(
@@ -222,7 +239,7 @@ public class TbPrologisAggregationNode implements TbNode {
         return key.toLowerCase().replace("_value", KEY_ENDING);
     }
 
-    private ListenableFuture<List<DeviceAvg>> getDeviceAvgs(TbContext ctx, List<Device> targetDevices, String key, long startTs, long endTs) {
+    private ListenableFuture<List<DeviceAvg>> getDeviceAvgs(TbContext ctx, Set<Device> targetDevices, String key, long startTs, long endTs) {
         List<ListenableFuture<DeviceAvg>> devicesAvgFuture = new ArrayList<>();
         for (Device targetDevice : targetDevices) {
             devicesAvgFuture.add(Futures.transform(getAvg(ctx, targetDevice, key, startTs, endTs), tsKvEntries -> {
@@ -262,7 +279,7 @@ public class TbPrologisAggregationNode implements TbNode {
                         new BaseReadTsKvQuery(key, startTs, endTs, ONE_HOUR_MS, TELEMETRY_LIMIT, Aggregation.AVG, SortOrder.Direction.DESC.name())));
     }
 
-    private ListenableFuture<List<Device>> getTargetDevices(TbContext ctx, List<Device> devices) {
+    private ListenableFuture<List<Device>> getTargetDevicesByAttr(TbContext ctx, List<Device> devices) {
         List<ListenableFuture<Device>> targetDevicesFuture = new ArrayList<>();
         for (Device device : devices) {
             targetDevicesFuture.add(Futures.transform(getAttributes(ctx, device.getId()), attributeKvEntries -> {
@@ -282,15 +299,51 @@ public class TbPrologisAggregationNode implements TbNode {
         }, ctx.getDbCallbackExecutor());
     }
 
+    private ListenableFuture<List<Device>> getTargetDevicesByRelations(TbContext ctx, List<Device> devices) {
+        List<ListenableFuture<Device>> targetDevicesByRelationsFuture = new ArrayList<>();
+        for (Device device : devices) {
+            targetDevicesByRelationsFuture.add(Futures.transform(findRelationsByQuery(ctx, device.getId()), entityRelations -> {
+                if (!CollectionUtils.isEmpty(entityRelations)) {
+                    return device;
+                }
+                return null;
+            }, ctx.getDbCallbackExecutor()));
+        }
+        return Futures.transform(Futures.allAsList(targetDevicesByRelationsFuture), targetDevices -> {
+            if (!CollectionUtils.isEmpty(targetDevices)) {
+                return targetDevices.stream().filter(Objects::nonNull).collect(Collectors.toList());
+            }
+            return null;
+        }, ctx.getDbCallbackExecutor());
+    }
+
+    private ListenableFuture<List<EntityRelation>> findRelationsByQuery(TbContext ctx, DeviceId deviceId) {
+        return ctx.getRelationService().findByQuery(ctx.getTenantId(), getEntityRelationsQuery(deviceId));
+    }
+
+    private EntityRelationsQuery getEntityRelationsQuery(EntityId originatorId) {
+        RelationsSearchParameters relationsSearchParameters = new RelationsSearchParameters(originatorId,
+                EntitySearchDirection.TO, 1, false);
+        List<EntityTypeFilter> entityTypeFilters = new ArrayList<>(Arrays.asList(
+                new EntityTypeFilter("buildingToVibrationSensor", Collections.singletonList(EntityType.ASSET)),
+                new EntityTypeFilter("buildingToPresenceSensor", Collections.singletonList(EntityType.ASSET)),
+                new EntityTypeFilter("buildingToNoiseSensor", Collections.singletonList(EntityType.ASSET))
+        ));
+        EntityRelationsQuery entityRelationsQuery = new EntityRelationsQuery();
+        entityRelationsQuery.setParameters(relationsSearchParameters);
+        entityRelationsQuery.setFilters(entityTypeFilters);
+        return entityRelationsQuery;
+    }
+
     private ListenableFuture<List<AttributeKvEntry>> getAttributes(TbContext ctx, DeviceId deviceId) {
         return ctx.getAttributesService().find(ctx.getTenantId(), deviceId, DataConstants.SERVER_SCOPE, Collections.singletonList(COLUMN_NAME_ATTR));
     }
 
     private ListenableFuture<List<Device>> getRelatedDevices(TbContext ctx, AssetId projectId) {
-        return ctx.getDeviceService().findDevicesByQuery(ctx.getTenantId(), getEntityRelationsQuery(projectId));
+        return ctx.getDeviceService().findDevicesByQuery(ctx.getTenantId(), getDeviceSearchQuery(projectId));
     }
 
-    private DeviceSearchQuery getEntityRelationsQuery(AssetId projectId) {
+    private DeviceSearchQuery getDeviceSearchQuery(AssetId projectId) {
         DeviceSearchQuery deviceSearchQuery = new DeviceSearchQuery();
         deviceSearchQuery.setParameters(new RelationsSearchParameters(projectId, EntitySearchDirection.FROM, 10, false));
         deviceSearchQuery.setDeviceTypes(Collections.singletonList(DATA_DEVICE_TYPE));
