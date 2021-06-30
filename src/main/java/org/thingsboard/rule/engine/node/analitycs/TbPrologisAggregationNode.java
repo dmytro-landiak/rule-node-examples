@@ -15,6 +15,7 @@
  */
 package org.thingsboard.rule.engine.node.analitycs;
 
+import com.google.common.base.CaseFormat;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -236,7 +237,7 @@ public class TbPrologisAggregationNode implements TbNode {
     }
 
     private String getKey(String key) {
-        return key.toLowerCase().replace("_value", KEY_ENDING);
+        return CaseFormat.UPPER_UNDERSCORE.to(CaseFormat.LOWER_CAMEL, key).replace("Value", KEY_ENDING);
     }
 
     private ListenableFuture<List<DeviceAvg>> getDeviceAvgs(TbContext ctx, Set<Device> targetDevices, String key, long startTs, long endTs) {
